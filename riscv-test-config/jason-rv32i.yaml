@@ -1,0 +1,132 @@
+$schema: config_schema.json#
+
+kind: architecture configuration
+type: fully configured
+
+name: jason-rv32i
+description: RV32I instruction set
+
+params:
+  MXLEN: 32
+  PHYS_ADDR_WIDTH: 32
+  M_MODE_ENDIANNESS: little
+
+  # ------------------------------------------------------------
+  # Exceptions/traps
+  #
+  # These are effectively dummy values for your current DUT,
+  # because you are not running privileged tests.
+  # ------------------------------------------------------------
+
+  PRECISE_SYNCHRONOUS_EXCEPTIONS: false
+
+  TRAP_ON_ECALL_FROM_M: false
+  TRAP_ON_EBREAK: false
+
+  TRAP_ON_ILLEGAL_WLRL: false
+  TRAP_ON_UNIMPLEMENTED_INSTRUCTION: false
+  TRAP_ON_RESERVED_INSTRUCTION: false
+  TRAP_ON_UNIMPLEMENTED_CSR: false
+
+  # ------------------------------------------------------------
+  # mtval
+  # ------------------------------------------------------------
+
+  REPORT_VA_IN_MTVAL_ON_BREAKPOINT: false
+  REPORT_VA_IN_MTVAL_ON_LOAD_MISALIGNED: false
+  REPORT_VA_IN_MTVAL_ON_STORE_AMO_MISALIGNED: false
+  REPORT_VA_IN_MTVAL_ON_INSTRUCTION_MISALIGNED: false
+  REPORT_VA_IN_MTVAL_ON_LOAD_ACCESS_FAULT: false
+  REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT: false
+  REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT: false
+  REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION: false
+
+  MTVAL_WIDTH: 0
+
+  # ------------------------------------------------------------
+  # Misaligned loads/stores
+  #
+  # Set this to match YOUR hardware.
+  # The SRAM is byte-addressed and the memory controller enables the
+  # participating byte lanes directly, so scalar LH/LW/SH/SW misalignment
+  # completes in hardware rather than trapping.
+  # ------------------------------------------------------------
+
+  MISALIGNED_LDST: true
+  MISALIGNED_LDST_EXCEPTION_PRIORITY: low
+  MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE: 0
+  MISALIGNED_SPLIT_STRATEGY: sequential_bytes
+
+  # ------------------------------------------------------------
+  # Machine identification CSRs
+  # ------------------------------------------------------------
+
+  MARCHID_IMPLEMENTED: false
+  MIMPID_IMPLEMENTED: false
+
+  VENDOR_ID_BANK: 0
+  VENDOR_ID_OFFSET: 0
+
+  CONFIG_PTR_ADDRESS: 0
+
+  # ------------------------------------------------------------
+  # misa
+  # ------------------------------------------------------------
+
+  MISA_CSR_IMPLEMENTED: false
+
+  # ------------------------------------------------------------
+  # mtvec
+  #
+  # Dummy minimal legal configuration.
+  # ro + only direct mode avoids needing base-alignment parameters.
+  # ------------------------------------------------------------
+
+  MTVEC_ACCESS: ro
+  MTVEC_MODES: [0]
+  MTVEC_ILLEGAL_WRITE_BEHAVIOR: retain
+
+  # ------------------------------------------------------------
+  # PMA / PMP
+  # ------------------------------------------------------------
+
+  PMA_GRANULARITY: 2
+  NUM_PMP_ENTRIES: 0
+
+  # ------------------------------------------------------------
+  # Performance counters
+  # ------------------------------------------------------------
+
+  HPM_COUNTER_EN:
+    [
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false
+    ]
+
+  MCOUNTINHIBIT_IMPLEMENTED: false
+
+  MCOUNTENABLE_EN:
+    [
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false
+    ]
+
+implemented_extensions:
+  - name: I
+    version: "= 2.1"
+  - name: Sm
+    version: "= 1.12.0"
+
+additional_extensions: false

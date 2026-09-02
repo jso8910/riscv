@@ -1,0 +1,1 @@
+python3 ../sim/run_arch_test.py --max-cycles 2000000

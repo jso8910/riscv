@@ -1,0 +1,11 @@
+rtl/riscv.svh
+rtl/alu.sv
+rtl/next_pc_unit.sv
+rtl/immediate_gen.sv
+rtl/control_unit.sv
+rtl/fetch.sv
+rtl/sram.sv
+rtl/regfile.sv
+rtl/core.sv
+rtl/memory_controller.sv
+tb/tb_core.sv
