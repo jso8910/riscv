@@ -9,22 +9,27 @@ module riscv_core (
     output logic [XLEN-1:0]     pc_o,
     output logic [WWIDTH/8-1:0] data_mem_we_o,
     output logic [XLEN-1:0]     data_mem_addr_o,
-    output logic [WWIDTH-1:0]   data_mem_data_o,
-    output ctrl_t               ctrl_o
+    output logic [WWIDTH-1:0]   data_mem_data_o
 );
     // ================
     // Wire definitions
     // ================
     ctrl_t ctrl;
-    logic [XLEN-1:0] next_pc, rs1_data, rs2_data;
-    logic [XLEN-1:0] alu_res, imm, mem_content, op1;
+    trap_t trap;
+    machine_privilege_t machine_privilege;
+    logic [XLEN-1:0] next_pc, rs1_data, rs2_data, csr_val,
+                     alu_res, imm, mem_content, op1, mepc, mtvec;
+    logic csr_illegal_inst, commit, retire_count, cycle_tick, address_misaligned;
 
     // ===========
     // Assignments
     // ===========
-    assign ctrl_o = ctrl;
     assign data_mem_addr_o = alu_res;
     assign data_mem_data_o = rs2_data;
+    // suppress side effects on trap
+    assign commit = ~trap.is_trap;
+    assign cycle_tick = '1;
+    assign retire_count = commit;
 
     // =====================
     // =====================
@@ -48,7 +53,11 @@ module riscv_core (
         .rs1_data_i    (rs1_data),
         .rs2_data_i    (rs2_data),
         .alu_res_i     (alu_res),
-        .next_pc_o     (next_pc)
+        .mepc_i        (mepc),
+        .mtvec_i       (mtvec),
+        .trap_i        (trap),
+        .next_pc_o     (next_pc),
+        .address_misaligned_o (address_misaligned)
     );
 
     // ==============
@@ -60,6 +69,18 @@ module riscv_core (
         .ctrl_o    (ctrl)
     );
 
+    // ===============
+    // Trap controller
+    // ===============
+    trap_controller trap_controller (
+        .ctrl_i              (ctrl),
+        .csr_illegal_inst_i  (csr_illegal_inst),
+        .address_misaligned_i(address_misaligned),
+        .current_privilege_i (machine_privilege),
+        .pc_i                (pc_o),
+        .trap_o              (trap)
+    );
+
     // =============
     // Operand 1 mux
     // =============
@@ -67,6 +88,7 @@ module riscv_core (
         case (ctrl.op1_src)
             RS1 : op1 = rs1_data;
             PC : op1 = pc_o;
+            default: $fatal();
         endcase
     end
 
@@ -88,12 +110,32 @@ module riscv_core (
         .clk           (clk),
         .rst_n         (rst_n),
         .ctrl_i        (ctrl),
+        .commit_i      (commit),
         .alu_i         (alu_res),
         .mem_i         (mem_content),
         .pc_i          (pc_o),
+        .csr_i         (csr_val),
         .imm_i         (imm),
         .rs1_data_o    (rs1_data),
         .rs2_data_o    (rs2_data)
+    );
+
+    // ========
+    // CSR file
+    // ========
+    csrfile csrfile (
+        .clk                (clk),
+        .rst_n              (rst_n),
+        .ctrl_i             (ctrl),
+        .cycle_tick_i       (cycle_tick),
+        .retire_count_i     (retire_count),
+        .rs1_i              (rs1_data),
+        .trap_i             (trap),
+        .csr_val_o          (csr_val),
+        .mepc_o             (mepc),
+        .mtvec_o            (mtvec),
+        .csr_illegal_inst_o (csr_illegal_inst),
+        .machine_privilege_o(machine_privilege)
     );
 
     // =================
@@ -102,6 +144,7 @@ module riscv_core (
     memory_controller u_memory_controller (
         .data_i    (data_mem_data_i),
         .ctrl_i    (ctrl),
+        .commit_i  (commit),
         .data_o    (mem_content),
         .we_o      (data_mem_we_o)
     );
@@ -121,7 +164,6 @@ module riscv_system #(
     logic [WWIDTH-1:0] data_mem_data_i, data_mem_data_o;
     logic [XLEN-1:0] pc_o, data_mem_addr_o;
     logic [WWIDTH/8-1:0] data_mem_we_o;
-    ctrl_t ctrl_o;
 
     // CPU core
     riscv_core u_riscv_core (
@@ -132,8 +174,7 @@ module riscv_system #(
         .pc_o               (pc_o),
         .data_mem_we_o      (data_mem_we_o),
         .data_mem_addr_o    (data_mem_addr_o),
-        .data_mem_data_o    (data_mem_data_o),
-        .ctrl_o             (ctrl_o)
+        .data_mem_data_o    (data_mem_data_o)
     );
 
     // Instruction memory

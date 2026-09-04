@@ -15,6 +15,165 @@ package riscv;
     localparam logic [XLEN-1:0] DMEM_START_ADDRESS = 'h00_10_00_00;
     localparam logic [XLEN-1:0] DMEM_END_ADDRESS   = 'h00_1f_ff_ff;
 
+    // ================
+    // Privilege levels
+    // ================
+    typedef enum logic [1:0] {
+        U_MODE = 2'b00,     // user
+        S_MODE = 2'b01,     // supervisor
+        RESERVED = 2'b10,   // reserved for hypervisor mode
+        M_MODE = 2'b11      // machine
+    } machine_privilege_t;
+
+    localparam machine_privilege_t IMPLEMENTED_PRIVILEGES [0:0] = {M_MODE};
+
+    // ================
+    // Trap vector mode
+    // ================
+    typedef enum logic [1:0] {
+        TRAP_DIRECT = 2'b00,
+        TRAP_VEC = 2'b01
+    } trap_mode_t;
+
+    // ==========================
+    // Physical memory protection
+    // ==========================
+    localparam int PMPCFG_L_IDX = 7;
+    localparam int PMPCFG_A_MSB = 4;
+    localparam int PMPCFG_A_LSB = 3;
+    localparam int PMPCFG_X_IDX = 2;
+    localparam int PMPCFG_W_IDX = 1;
+    localparam int PMPCFG_R_IDX = 0;
+
+    typedef struct packed {
+        logic [7:0]      cfg;
+        logic [XLEN-1:0] addr;
+    } pmp_entry_t;
+
+    typedef enum logic [1:0] {
+        PMP_OFF   = 2'b00,
+        PMP_TOR   = 2'b01,
+        PMP_NA4   = 2'b10,
+        PMP_NAPOT = 2'b11
+    } pmp_addr_matching_t;
+
+    // ==============
+    // mstatus fields
+    // ==============
+    localparam int MSTATUS_MPP_MSB = 12;
+    localparam int MSTATUS_MPP_LSB = 11;
+    localparam int MSTATUS_MIE = 3;
+    localparam int MSTATUS_MPIE = 7;
+    localparam int MSTATUS_MPRV = 17;
+
+    // ========
+    // counters
+    // ========
+    localparam int MCOUNTINHIBIT_CY = 0;
+    localparam int MCOUNTINHIBIT_IR = 2;
+
+    // ======================
+    // CSR register addresses
+    // ======================
+    localparam logic [1:0] CSR_READ_ONLY = 2'b11;
+
+    // # Machine-level CSRs
+    // ## Machine read only
+    // ### Machine information registers
+    localparam logic [11:0] MVENDORID    = 'hf11;
+    localparam logic [11:0] MARCHID      = 'hf12;
+    localparam logic [11:0] MIMPID       = 'hf13;
+    localparam logic [11:0] MHARTID      = 'hf14;
+    localparam logic [11:0] MCONFIGPTR   = 'hf15;
+
+    // ## Machine read-write
+    // ### Machine trap setup
+    localparam logic [11:0] MSTATUS        = 'h300;
+    localparam logic [11:0] MISA           = 'h301;
+    // TODO: implement once S-mode is added
+    // localparam logic [11:0] MEDELEG        = 'h302;
+    // localparam logic [11:0] MIDELEG        = 'h303;
+    localparam logic [11:0] MIE            = 'h304;
+    localparam logic [11:0] MTVEC          = 'h305;
+    // localparam logic [11:0] MCOUNTEREN     = 'h306;  TODO
+    localparam logic [11:0] MSTATUSH       = 'h310;
+    // localparam logic [11:0] MEDELEGH       = 'h312;  TODO
+
+    // ### Machine trap handling
+    localparam logic [11:0] MSCRATCH       = 'h340;
+    localparam logic [11:0] MEPC           = 'h341;
+    localparam logic [11:0] MCAUSE         = 'h342;
+    localparam logic [11:0] MTVAL          = 'h343;
+    localparam logic [11:0] MIP            = 'h344;
+    // these are part of hypervisor/virtualization extensions, not needed
+    // localparam logic [11:0] MTINST         = 'h34A;
+    // localparam logic [11:0] MTVAL2         = 'h34B;
+
+    // ### Machine configuration
+    localparam logic [11:0] MENVCFG        = 'h30A;
+    localparam logic [11:0] MENVCFGH       = 'h31A;
+    localparam logic [11:0] MSECCFG        = 'h747;
+    localparam logic [11:0] MSECCFGH       = 'h757;
+
+    // ### Physical memory protection - defined with just first and last registers of each space
+    localparam logic [11:0] PMPCFG0        = 'h3A0;
+    localparam logic [11:0] PMPCFG15       = 'h3AF;
+    localparam logic [11:0] PMPADDR0       = 'h3B0;
+    localparam logic [11:0] PMPADDR63      = 'h3EF;
+
+    // ### Machine counter/timers
+    localparam logic [11:0] MCYCLE         = 'hB00;
+    localparam logic [11:0] MINSTRET       = 'hB02;
+    // In this implementation, mhpmcounter3-31 are going to be read-only 0, as well as mhpmevent3-31
+    localparam logic [11:0] MHPMCOUNTER3   = 'hB03;
+    localparam logic [11:0] MHPMCOUNTER31  = 'hB1F;
+    localparam logic [11:0] MCYCLEH        = 'hB80;
+    localparam logic [11:0] MINSTRETH      = 'hB82;
+    // Same with the upper halves
+    localparam logic [11:0] MHPMCOUNTER3H  = 'hB83;
+    localparam logic [11:0] MHPMCOUNTER31H = 'hB9F;
+
+    // ### Machine counter setup
+    localparam logic [11:0] MCOUNTINHIBIT  = 'h320;
+    localparam logic [11:0] MCYCLECFG      = 'h321;
+    localparam logic [11:0] MINSTRETCFG    = 'h322;
+    localparam logic [11:0] MHPMEVENT3     = 'h323;
+    localparam logic [11:0] MHPMEVENT31    = 'h33F;
+    localparam logic [11:0] MCYCLECFGH     = 'h721;
+    localparam logic [11:0] MINSTRETCFGH   = 'h722;
+    localparam logic [11:0] MHPMEVENT3H    = 'h723;
+    localparam logic [11:0] MHPMEVENT31H   = 'h73F;
+
+    // ==================
+    // CSR default values
+    // ==================
+    // For any CSR that has a non-zero default value, its default value is (and is explained) here.
+    // MISA: 31:30 => XLEN = 32
+    //       29:26 => static value (all 0s)
+    //       25:0  => extensions (bit 8 is set, RV32 base ISA)
+    localparam logic [XLEN-1:0] MISA_VAL     = 'b01_0000_00000000000000000100000000;
+
+    // mstatus/mstatush: all 0s, but MPP is reset to equal M (11) so an MRET before the first TRAP
+    // doesn't drop the mode to user.
+    localparam logic [XLEN-1:0] MSTATUS_VAL  = 'h0000_1800;
+    localparam logic [XLEN-1:0] MSTATUSH_VAL = 'h0;
+    // The only bits of mstatus which can be changed in this current machine mode
+    // implementation are
+    //  - 12:11 - MPP, must be set to a legal privilege mode. Technically for now only M,
+    //    but will implement all of M, S, and U
+    //  - 7     - MPIE
+    //  - 5     - SPIE
+    //  - 3     - MIE
+    //  - 1     - SIE
+    // All other bits are kept the same (generally 0)
+    localparam logic [XLEN-1:0] MSTATUS_WRITE_MASK_VAL = 'h00_00_18_AA;
+    // No bits in mstatush can be written in this implementation
+    localparam logic [XLEN-1:0] MSTATUSH_WRITE_MASK_VAL = 'h00_00_00_00;
+
+    // mtvec will, by default, have the base address as RESET_PC
+    localparam logic [XLEN-1:0] MVEC_VAL = {RESET_PC[XLEN-1:2], TRAP_DIRECT};
+
+
     // ======================
     // Instruction field bits
     // ======================
@@ -98,8 +257,22 @@ package riscv;
     // ===================
     // SYSTEM instructions
     // ===================
+    localparam logic [2:0] PRIV    = 3'b000;
     localparam logic [31:0] ECALL  = 32'b000000000000_00000_000_00000_1110011;
     localparam logic [31:0] EBREAK = 32'b000000000001_00000_000_00000_1110011;
+    localparam logic [31:0] MRET   = 32'h3020_0073;
+    // todo: not implemented yet
+    // localparam logic [31:0] SRET   = 32'h;
+
+    // ===============
+    // Zicsr extension
+    // ===============
+    localparam logic [2:0] CSRRW  = 3'b001;
+    localparam logic [2:0] CSRRS  = 3'b010;
+    localparam logic [2:0] CSRRC  = 3'b011;
+    localparam logic [2:0] CSRRWI = 3'b101;
+    localparam logic [2:0] CSRRSI = 3'b110;
+    localparam logic [2:0] CSRRCI = 3'b111;
 
 
     // =============================
@@ -131,11 +304,12 @@ package riscv;
     } alu_op_t;
 
     // Value written back into register
-    typedef enum logic [1:0] {
+    typedef enum logic [2:0] {
         WB_ALU,                 // ALU output
         WB_MEM,                 // Data from memory
         WB_PC_PLUS_4,           // Writeback address
-        WB_IMM                  // Immediate value (LUI)
+        WB_IMM,                 // Immediate value (LUI)
+        WB_CSR                  // CSR value
     } wb_sel_t;
 
     typedef enum logic [1:0] {
@@ -165,6 +339,17 @@ package riscv;
         PC
     } op1_src_t;
 
+    typedef enum logic {
+        SRC_ALU,
+        SRC_MEPC
+    } branch_src_t;
+
+    typedef enum logic [1:0] {
+        WB_NORMAL,              // RS1/uimm value
+        WB_SET_BITS,            // Sets bits using bitwise OR with rs1
+        WB_CLEAR_BITS           // Clears bits in the CSR which are high in rs1
+    } csr_wb_sel_t;
+
     typedef struct packed {
         inst_fmt_t             inst_fmt;
 
@@ -181,6 +366,7 @@ package riscv;
         branch_cond_t          branch_cond;
         logic                  jal;
         logic                  jalr;
+        branch_src_t           branch_src;
 
         logic                  mem_read;
         logic                  mem_write;
@@ -189,6 +375,59 @@ package riscv;
 
         wb_sel_t               wb_sel;
         logic                  reg_write;
+
+        logic                  csr_write;
+        logic                  csr_read;
+        logic [11:0]           csr_addr;
+        csr_wb_sel_t           csr_wb_sel;
+        logic                  csr_imm;
+
+        logic                  ebreak;
+        logic                  ecall;
+        logic                  mret;
+
         logic                  illegal;
     } ctrl_t;
+
+    // =============
+    // Trap handling
+    // =============
+    typedef enum logic[XLEN-2:0] {
+        S_SOFTWARE = 'd1,
+        M_SOFTWARE = 'd3,
+        S_TIMER = 'd5,
+        M_TIMER = 'd7,
+        S_EXTERNAL = 'd9,
+        M_EXTERNAL = 'd11,
+        COUNTER_OVERFLOW = 'd13
+    } trap_interrupt_cause_t;
+
+    typedef enum logic[XLEN-2:0] {
+        INST_ADDR_MISALIGNED = 'd0,
+        INST_ACCESS_FAULT = 'd1,
+        ILLEGAL_INSTRUCTION = 'd2,
+        BREAKPOINT = 'd3,
+        LOAD_ADDRESS_MISALIGNED = 'd4,
+        LOAD_ACCESS_FAULT = 'd5,
+        STORE_ADDRESS_MISALIGNED = 'd6,
+        STORE_ACCESS_FAULT = 'd7,
+        ECALL_FROM_U_MODE = 'd8,
+        ECALL_FROM_S_MODE = 'd9,
+        ECALL_FROM_M_MODE = 'd11,
+        INSTRUCTION_PAGE_FAULT = 'd12,
+        LOAD_PAGE_FAULT = 'd13,
+        STORE_PAGE_FAULT = 'd15,
+        DOUBLE_TRAP = 'd16,
+        SOFTWARE_CHECK = 'd18,
+        HARDWARE_ERROR = 'd19
+    } trap_exception_cause_t;
+
+    typedef struct packed {
+        logic                  is_trap;
+        logic                  is_interrupt;
+        trap_interrupt_cause_t interrupt_cause;
+        trap_exception_cause_t exception_cause;
+        logic [XLEN-1:0]       pc;
+        logic [XLEN-1:0]       tval;
+    } trap_t;
 endpackage

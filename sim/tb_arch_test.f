@@ -1,10 +1,2 @@
-rtl/riscv.svh
-rtl/alu.sv
-rtl/next_pc_unit.sv
-rtl/immediate_gen.sv
-rtl/control_unit.sv
-rtl/fetch.sv
-rtl/regfile.sv
-rtl/core.sv
-rtl/memory_controller.sv
+-f core_rtl.f
 tb/tb_arch_test.sv

@@ -42,6 +42,7 @@ module control_unit (
         ctrl_o.branch_cond = COND_EQ;
         ctrl_o.jal = '0;
         ctrl_o.jalr = '0;
+        ctrl_o.branch_src = SRC_ALU;
 
         ctrl_o.mem_read = '0;
         ctrl_o.mem_write = '0;
@@ -50,6 +51,16 @@ module control_unit (
 
         ctrl_o.wb_sel = WB_IMM;
         ctrl_o.reg_write = '0;
+
+        ctrl_o.csr_write = '0;
+        ctrl_o.csr_read = '0;
+        ctrl_o.csr_addr = inst_i[31:20];
+        ctrl_o.csr_wb_sel = WB_NORMAL;
+        ctrl_o.csr_imm = '0;
+
+        ctrl_o.ebreak = '0;
+        ctrl_o.ecall = '0;
+        ctrl_o.mret = '0;
 
         ctrl_o.illegal = '0;
 
@@ -187,10 +198,65 @@ module control_unit (
             end
             SYSTEM : begin
                 ctrl_o.inst_fmt = IMM_I;
-                // No support yet for ECALL/EBREAK, so they're treated as NOPs
-                case (inst_i)
-                    ECALL, EBREAK : ;
-                    default : ctrl_o.illegal = '1;
+                case (funct3)
+                    // No support yet for ECALL/EBREAK, so they're treated as NOPs
+                    // But some instructions of this form are instead illegal
+                    PRIV : case (inst_i)
+                        ECALL : ctrl_o.ecall = '1;
+                        EBREAK : ctrl_o.ebreak = '1;
+                        MRET : begin
+                            // In the case of a return from a trap, we want to branch to the MEPC
+                            ctrl_o.mret = '1;
+                            ctrl_o.branch_src = SRC_MEPC;
+                            ctrl_o.branch = '1;
+                        end
+                        default : ctrl_o.illegal = '1;
+                    endcase
+
+                    // Immediate and register operand CSR operations can use the same processing.
+                    // For immediate instructions, though, rs1_addr is treated as a 5 bit unsigned
+                    // immediate value.
+                    CSRRW, CSRRWI : begin
+                        ctrl_o.reg_write = '1;
+                        ctrl_o.wb_sel = WB_CSR;
+
+                        ctrl_o.csr_write = '1;
+                        // If rd is x0, a read does not take place
+                        if (ctrl_o.rd_addr != '0)
+                            ctrl_o.csr_read = '1;
+
+                        if (funct3 == CSRRWI) ctrl_o.csr_imm = '1;
+                    end
+
+                    CSRRS, CSRRSI : begin
+                        ctrl_o.reg_write = '1;
+                        ctrl_o.wb_sel = WB_CSR;
+
+                        // If rs1/uimm is x0/0, a write doesn't take place
+                        if (ctrl_o.rs1_addr != '0)
+                            ctrl_o.csr_write = '1;
+
+                        ctrl_o.csr_read = '1;
+                        ctrl_o.csr_wb_sel = WB_SET_BITS;
+
+                        if (funct3 == CSRRSI) ctrl_o.csr_imm = '1;
+                    end
+
+                    CSRRC, CSRRCI : begin
+                        ctrl_o.reg_write = '1;
+                        ctrl_o.wb_sel = WB_CSR;
+
+                        // If rs1/uimm is x0/0, a write doesn't take place
+                        if (ctrl_o.rs1_addr != '0)
+                            ctrl_o.csr_write = '1;
+
+                        ctrl_o.csr_read = '1;
+                        ctrl_o.csr_wb_sel = WB_CLEAR_BITS;
+
+                        if (funct3 == CSRRCI) ctrl_o.csr_imm = '1;
+                    end
+
+                    default: ctrl_o.illegal = '1;
                 endcase
             end
             default : begin

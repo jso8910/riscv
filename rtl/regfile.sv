@@ -4,10 +4,12 @@ module regfile (
     input logic                  clk,
     input logic                  rst_n,
     input ctrl_t                 ctrl_i,
+    input logic                  commit_i,
     input logic [XLEN-1:0]       alu_i,
     input logic [XLEN-1:0]       mem_i,
     input logic [XLEN-1:0]       pc_i,
     input logic [XLEN-1:0]       imm_i,
+    input logic [XLEN-1:0]       csr_i,
     output logic [XLEN-1:0]      rs1_data_o,
     output logic [XLEN-1:0]      rs2_data_o
 );
@@ -26,7 +28,7 @@ module regfile (
                 regs[i] <= '0;
         end else begin
             // x0 is hardcoded to be the value 0
-            if (ctrl_i.reg_write && ctrl_i.rd_addr != X0)
+            if (commit_i && ctrl_i.reg_write && ctrl_i.rd_addr != X0)
                 regs[ctrl_i.rd_addr] <= value_to_write;
         end
     end
@@ -37,6 +39,8 @@ module regfile (
             WB_MEM : value_to_write = mem_i;
             WB_IMM : value_to_write = imm_i;
             WB_PC_PLUS_4 : value_to_write = pc_i + PC_INC;
+            WB_CSR : value_to_write = csr_i;
+            default : $fatal();
         endcase
     end
 endmodule

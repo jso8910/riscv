@@ -1,6 +1,9 @@
+import riscv::*;
+
 module memory_controller (
     input logic [XLEN-1:0]  data_i,
     input ctrl_t            ctrl_i,
+    input logic             commit_i,
     output logic [XLEN-1:0] data_o,
     output logic [3:0]      we_o
 );
@@ -15,12 +18,13 @@ module memory_controller (
     always_comb begin
         // Default: no writes
         we_o = '0;
-        if (ctrl_i.mem_write) begin
+        if (commit_i && ctrl_i.mem_write) begin
             case (ctrl_i.mem_size)
                 MEM_BYTE : we_o = 4'b0001;
                 MEM_HALF : we_o = 4'b0011;
                 MEM_WORD : we_o = 4'b1111;
-                default : we_o = '0;
+                MEM_NONE : we_o = '0;
+                default : $fatal();
             endcase
         end
 
@@ -31,7 +35,8 @@ module memory_controller (
                 MEM_BYTE : data_o = byte_read;
                 MEM_HALF : data_o = half_read;
                 MEM_WORD : data_o = word_read;
-                default : data_o = '0;
+                MEM_NONE : data_o = '0;
+                default : $fatal();
             endcase
         end
     end

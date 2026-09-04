@@ -20,7 +20,6 @@ module tb_arch_test;
     logic [XLEN-1:0] data_mem_addr;
     logic [XLEN-1:0] pc;
     logic [WWIDTH/8-1:0] data_mem_we;
-    ctrl_t ctrl;
 
     bit [7:0] imem [];
     bit [7:0] dmem [];
@@ -33,8 +32,7 @@ module tb_arch_test;
         .pc_o            (pc),
         .data_mem_we_o   (data_mem_we),
         .data_mem_addr_o (data_mem_addr),
-        .data_mem_data_o (data_mem_wdata),
-        .ctrl_o          (ctrl)
+        .data_mem_data_o (data_mem_wdata)
     );
 
     always #5 clk = ~clk;
