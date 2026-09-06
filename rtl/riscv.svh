@@ -25,7 +25,7 @@ package riscv;
         M_MODE = 2'b11      // machine
     } machine_privilege_t;
 
-    localparam machine_privilege_t IMPLEMENTED_PRIVILEGES [0:0] = {M_MODE};
+    localparam machine_privilege_t IMPLEMENTED_PRIVILEGE = M_MODE;
 
     // ================
     // Trap vector mode
@@ -38,6 +38,8 @@ package riscv;
     // ==========================
     // Physical memory protection
     // ==========================
+    localparam int PMP_ENTRY_COUNT = 64;
+
     localparam int PMPCFG_L_IDX = 7;
     localparam int PMPCFG_A_MSB = 4;
     localparam int PMPCFG_A_LSB = 3;
@@ -430,4 +432,18 @@ package riscv;
         logic [XLEN-1:0]       pc;
         logic [XLEN-1:0]       tval;
     } trap_t;
+
+    // ===========================
+    // Physical memory attribution
+    // ===========================
+    typedef struct packed {
+        logic [31:0] addr_low;
+        logic [31:0] addr_high;
+        logic        main;          // High if part of main memory, low if MMIO (ie should not be executable)
+        logic        writable;
+        logic        readable;
+        // logic        bufferable; // relevant for future
+        // logic        cacheable;
+        // logic        atomic;
+    } pma_cfg_t;
 endpackage

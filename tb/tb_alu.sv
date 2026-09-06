@@ -41,7 +41,7 @@ module tb_alu;
             tests_run++;
             if (res !== expected) begin
                 tests_failed++;
-                $error("%s: expected 0x%08x, got 0x%08x", name, expected, res);
+                $fatal(1, "%s: expected 0x%08x, got 0x%08x", name, expected, res);
             end
         end
     endtask
@@ -91,8 +91,8 @@ module tb_alu;
         if (tests_failed == 0) begin
             $display("tb_alu: all %0d tests passed", tests_run);
             $finish;
+        end else begin
+            $fatal(1, "tb_alu: %0d of %0d tests failed", tests_failed, tests_run);
         end
-
-        $fatal(1, "tb_alu: %0d of %0d tests failed", tests_failed, tests_run);
     end
 endmodule : tb_alu

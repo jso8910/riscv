@@ -2,24 +2,15 @@ SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
 IVERILOG ?= iverilog
-VVP      ?= vvp
+VVP ?= vvp
+IVERILOG_FLAGS := -g2012
 IVERILOG_WARN_FILTER := sed '/sorry: constant selects in always_[*] processes are not fully supported/d'
 
 BUILD_DIR := build
-CORE_OUT  := $(BUILD_DIR)/core.vvp
-ALU_OUT   := $(BUILD_DIR)/tb_alu.vvp
-NEXT_PC_OUT := $(BUILD_DIR)/tb_next_pc.vvp
-IMMEDIATE_GEN_OUT := $(BUILD_DIR)/tb_immediate_gen.vvp
-SRAM_OUT  := $(BUILD_DIR)/tb_sram.vvp
-MEM_CTRL_OUT := $(BUILD_DIR)/tb_memory_controller.vvp
-MEM_CTRL_SRAM_OUT := $(BUILD_DIR)/tb_memory_controller_sram.vvp
-FETCH_OUT := $(BUILD_DIR)/tb_fetch.vvp
-REGFILE_OUT := $(BUILD_DIR)/tb_regfile.vvp
-TEST_OUT  := $(BUILD_DIR)/tb_core.vvp
-TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test
+TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test
 TEST_TARGET_COUNT := $(words $(TEST_TARGETS))
 
-.PHONY: all core test test-all test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile clean
+.PHONY: all core test test-all test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma clean
 
 all: core
 
@@ -27,11 +18,15 @@ $(BUILD_DIR):
 	mkdir -p $@
 
 core: $(BUILD_DIR)
-	$(IVERILOG) -g2012 -Wall -s riscv_core -o $(CORE_OUT) -f sim/rtl.f 2>&1 | $(IVERILOG_WARN_FILTER)
+	$(IVERILOG) $(IVERILOG_FLAGS) -s riscv_core -o $(BUILD_DIR)/riscv_core -f sim/rtl.f 2>&1 | $(IVERILOG_WARN_FILTER)
+
+define RUN_TEST
+	$(IVERILOG) $(IVERILOG_FLAGS) -s $(1) -o $(BUILD_DIR)/$(1) -f $(2) 2>&1 | $(IVERILOG_WARN_FILTER)
+	$(VVP) $(BUILD_DIR)/$(1)
+endef
 
 test: $(BUILD_DIR)
-	$(IVERILOG) -g2012 -Wall -s tb_core -o $(TEST_OUT) -f sim/tb_core.f 2>&1 | $(IVERILOG_WARN_FILTER)
-	$(VVP) $(TEST_OUT)
+	$(call RUN_TEST,tb_core,sim/tb_core.f)
 
 test-all: $(BUILD_DIR)
 	@passed=0; failed=0; passed_tests=""; failed_tests=""; \
@@ -54,38 +49,42 @@ test-all: $(BUILD_DIR)
 	fi
 
 test-alu: $(BUILD_DIR)
-	$(IVERILOG) -g2012 -Wall -s tb_alu -o $(ALU_OUT) -f sim/tb_alu.f 2>&1 | $(IVERILOG_WARN_FILTER)
-	$(VVP) $(ALU_OUT)
+	$(call RUN_TEST,tb_alu,sim/tb_alu.f)
 
 test-next-pc: $(BUILD_DIR)
-	$(IVERILOG) -g2012 -Wall -s tb_next_pc -o $(NEXT_PC_OUT) -f sim/tb_next_pc.f 2>&1 | $(IVERILOG_WARN_FILTER)
-	$(VVP) $(NEXT_PC_OUT)
+	$(call RUN_TEST,tb_next_pc,sim/tb_next_pc.f)
 
 test-immediate-gen: $(BUILD_DIR)
-	$(IVERILOG) -g2012 -Wall -s tb_immediate_gen -o $(IMMEDIATE_GEN_OUT) -f sim/tb_immediate_gen.f 2>&1 | $(IVERILOG_WARN_FILTER)
-	$(VVP) $(IMMEDIATE_GEN_OUT)
+	$(call RUN_TEST,tb_immediate_gen,sim/tb_immediate_gen.f)
 
 test-sram: $(BUILD_DIR)
-	$(IVERILOG) -g2012 -Wall -s tb_sram -o $(SRAM_OUT) -f sim/tb_sram.f 2>&1 | $(IVERILOG_WARN_FILTER)
-	$(VVP) $(SRAM_OUT)
+	$(call RUN_TEST,tb_sram,sim/tb_sram.f)
 
 test-memory-controller: $(BUILD_DIR)
-	$(IVERILOG) -g2012 -Wall -s tb_memory_controller -o $(MEM_CTRL_OUT) -f sim/tb_memory_controller.f 2>&1 | $(IVERILOG_WARN_FILTER)
-	$(VVP) $(MEM_CTRL_OUT)
+	$(call RUN_TEST,tb_memory_controller,sim/tb_memory_controller.f)
 
 test-memory-controller-sram: $(BUILD_DIR)
-	$(IVERILOG) -g2012 -Wall -s tb_memory_controller_sram -o $(MEM_CTRL_SRAM_OUT) -f sim/tb_memory_controller_sram.f 2>&1 | $(IVERILOG_WARN_FILTER)
-	$(VVP) $(MEM_CTRL_SRAM_OUT)
+	$(call RUN_TEST,tb_memory_controller_sram,sim/tb_memory_controller_sram.f)
 
 test-ram: test-sram
 
 test-fetch: $(BUILD_DIR)
-	$(IVERILOG) -g2012 -Wall -s tb_fetch -o $(FETCH_OUT) -f sim/tb_fetch.f 2>&1 | $(IVERILOG_WARN_FILTER)
-	$(VVP) $(FETCH_OUT)
+	$(call RUN_TEST,tb_fetch,sim/tb_fetch.f)
 
 test-regfile: $(BUILD_DIR)
-	$(IVERILOG) -g2012 -Wall -s tb_regfile -o $(REGFILE_OUT) -f sim/tb_regfile.f 2>&1 | $(IVERILOG_WARN_FILTER)
-	$(VVP) $(REGFILE_OUT)
+	$(call RUN_TEST,tb_regfile,sim/tb_regfile.f)
+
+test-control: $(BUILD_DIR)
+	$(call RUN_TEST,tb_control_unit,sim/tb_control_unit.f)
+
+test-csrfile: $(BUILD_DIR)
+	$(call RUN_TEST,tb_csrfile,sim/tb_csrfile.f)
+
+test-trap-controller: $(BUILD_DIR)
+	$(call RUN_TEST,tb_trap_controller,sim/tb_trap_controller.f)
+
+test-pma: $(BUILD_DIR)
+	$(call RUN_TEST,tb_pma_checker,sim/tb_pma_checker.f)
 
 clean:
 	rm -rf $(BUILD_DIR)

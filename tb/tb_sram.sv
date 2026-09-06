@@ -60,7 +60,7 @@ module tb_sram;
             tests_run++;
             if (data_out !== expected) begin
                 tests_failed++;
-                $error("%s: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s: expected 0x%08x, got 0x%08x",
                        name, expected, data_out);
             end
         end
@@ -75,7 +75,7 @@ module tb_sram;
             tests_run++;
             if (dut.mem[addr] !== expected) begin
                 tests_failed++;
-                $error("%s: expected byte 0x%02x at 0x%08x, got 0x%02x",
+                $fatal(1, "%s: expected byte 0x%02x at 0x%08x, got 0x%02x",
                        name, expected, addr, dut.mem[addr]);
             end
         end
@@ -159,8 +159,8 @@ module tb_sram;
         if (tests_failed == 0) begin
             $display("tb_sram: all %0d tests passed", tests_run);
             $finish;
+        end else begin
+            $fatal(1, "tb_sram: %0d of %0d tests failed", tests_failed, tests_run);
         end
-
-        $fatal(1, "tb_sram: %0d of %0d tests failed", tests_failed, tests_run);
     end
 endmodule : tb_sram

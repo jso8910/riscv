@@ -5,6 +5,7 @@ import riscv::*;
 module tb_memory_controller;
     logic [XLEN-1:0] data_in;
     ctrl_t           ctrl;
+    logic            commit;
     logic [XLEN-1:0] data_out;
     logic [3:0]      we;
 
@@ -14,6 +15,7 @@ module tb_memory_controller;
     memory_controller dut (
         .data_i(data_in),
         .ctrl_i(ctrl),
+        .commit_i(commit),
         .data_o(data_out),
         .we_o(we)
     );
@@ -51,12 +53,12 @@ module tb_memory_controller;
             tests_run++;
             if (data_out !== expected_data) begin
                 tests_failed++;
-                $error("%s data: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s data: expected 0x%08x, got 0x%08x",
                        name, expected_data, data_out);
             end
             if (we !== expected_we) begin
                 tests_failed++;
-                $error("%s we: expected 0b%04b, got 0b%04b",
+                $fatal(1, "%s we: expected 0b%04b, got 0b%04b",
                        name, expected_we, we);
             end
         end
@@ -65,6 +67,7 @@ module tb_memory_controller;
     initial begin
         data_in = '0;
         ctrl = '0;
+        commit = 1'b1;
         tests_run = 0;
         tests_failed = 0;
 
@@ -112,12 +115,21 @@ module tb_memory_controller;
               32'h89ab_cdef, 1'b1, 1'b0, MEM_NONE, MEM_SIGNED,
               '0, 4'b0000);
 
+        commit = 1'b0;
+        set_ctrl(1'b0, 1'b1, MEM_WORD, MEM_SIGNED);
+        #1;
+        tests_run++;
+        if (we !== '0) begin
+            tests_failed++;
+            $fatal(1, "uncommitted store must not assert write enables");
+        end
+
         if (tests_failed == 0) begin
             $display("tb_memory_controller: all %0d checks passed", tests_run);
             $finish;
+        end else begin
+            $fatal(1, "tb_memory_controller: %0d of %0d checks failed",
+                   tests_failed, tests_run);
         end
-
-        $fatal(1, "tb_memory_controller: %0d of %0d checks failed",
-               tests_failed, tests_run);
     end
 endmodule : tb_memory_controller

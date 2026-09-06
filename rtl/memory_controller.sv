@@ -24,7 +24,7 @@ module memory_controller (
                 MEM_HALF : we_o = 4'b0011;
                 MEM_WORD : we_o = 4'b1111;
                 MEM_NONE : we_o = '0;
-                default : $fatal();
+                default : $fatal(1);
             endcase
         end
 
@@ -36,7 +36,7 @@ module memory_controller (
                 MEM_HALF : data_o = half_read;
                 MEM_WORD : data_o = word_read;
                 MEM_NONE : data_o = '0;
-                default : $fatal();
+                default : $fatal(1);
             endcase
         end
     end

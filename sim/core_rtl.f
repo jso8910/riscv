@@ -9,4 +9,5 @@ rtl/regfile.sv
 rtl/csrfile.sv
 rtl/memory_controller.sv
 rtl/trap_controller.sv
+rtl/physical_memory_checker.sv
 rtl/core.sv

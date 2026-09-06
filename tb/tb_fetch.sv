@@ -29,7 +29,7 @@ module tb_fetch;
             tests_run++;
             if (pc !== expected_pc) begin
                 tests_failed++;
-                $error("%s pc: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s pc: expected 0x%08x, got 0x%08x",
                        name, expected_pc, pc);
             end
         end
@@ -71,8 +71,8 @@ module tb_fetch;
         if (tests_failed == 0) begin
             $display("tb_fetch: all %0d checks passed", tests_run);
             $finish;
+        end else begin
+            $fatal(1, "tb_fetch: %0d of %0d checks failed", tests_failed, tests_run);
         end
-
-        $fatal(1, "tb_fetch: %0d of %0d checks failed", tests_failed, tests_run);
     end
 endmodule : tb_fetch

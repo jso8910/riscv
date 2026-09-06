@@ -10,6 +10,8 @@ module tb_regfile;
     logic [XLEN-1:0]       mem_data;
     logic [XLEN-1:0]       pc;
     logic [XLEN-1:0]       imm;
+    logic [XLEN-1:0]       csr_data;
+    logic                  commit;
     logic [XLEN-1:0]       rs1_data;
     logic [XLEN-1:0]       rs2_data;
 
@@ -20,9 +22,11 @@ module tb_regfile;
         .clk(clk),
         .rst_n(rst_n),
         .ctrl_i(ctrl),
+        .commit_i(commit),
         .alu_i(alu_data),
         .mem_i(mem_data),
         .pc_i(pc),
+        .csr_i(csr_data),
         .imm_i(imm),
         .rs1_data_o(rs1_data),
         .rs2_data_o(rs2_data)
@@ -61,12 +65,12 @@ module tb_regfile;
             tests_run++;
             if (rs1_data !== expected_rs1) begin
                 tests_failed++;
-                $error("%s rs1: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s rs1: expected 0x%08x, got 0x%08x",
                        name, expected_rs1, rs1_data);
             end
             if (rs2_data !== expected_rs2) begin
                 tests_failed++;
-                $error("%s rs2: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s rs2: expected 0x%08x, got 0x%08x",
                        name, expected_rs2, rs2_data);
             end
         end
@@ -81,6 +85,8 @@ module tb_regfile;
         mem_data = '0;
         pc = '0;
         imm = '0;
+        csr_data = '0;
+        commit = 1'b1;
         tests_run = 0;
         tests_failed = 0;
 
@@ -132,12 +138,16 @@ module tb_regfile;
         check_read("async reset clears written registers", 5'd1, 5'd4,
                    '0, '0);
 
+        commit = 1'b0;
+        write_reg(5'd5, 32'hfeed_face, 1'b1);
+        check_read("uncommitted write does not update register", 5'd5, X0, '0, '0);
+
         if (tests_failed == 0) begin
             $display("tb_regfile: all %0d checks passed", tests_run);
             $finish;
+        end else begin
+            $fatal(1, "tb_regfile: %0d of %0d checks failed",
+                   tests_failed, tests_run);
         end
-
-        $fatal(1, "tb_regfile: %0d of %0d checks failed",
-               tests_failed, tests_run);
     end
 endmodule : tb_regfile

@@ -67,7 +67,7 @@ module tb_immediate_gen;
             tests_run++;
             if (imm !== expected) begin
                 tests_failed++;
-                $error("%s: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s: expected 0x%08x, got 0x%08x",
                        name, expected, imm);
             end
         end
@@ -106,9 +106,9 @@ module tb_immediate_gen;
         if (tests_failed == 0) begin
             $display("tb_immediate_gen: all %0d tests passed", tests_run);
             $finish;
+        end else begin
+            $fatal(1, "tb_immediate_gen: %0d of %0d tests failed",
+                   tests_failed, tests_run);
         end
-
-        $fatal(1, "tb_immediate_gen: %0d of %0d tests failed",
-               tests_failed, tests_run);
     end
 endmodule : tb_immediate_gen

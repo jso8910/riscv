@@ -8,7 +8,11 @@ module tb_next_pc;
     logic [XLEN-1:0]  rs1_data;
     logic [XLEN-1:0]  rs2_data;
     logic [XLEN-1:0]  alu_res;
+    logic [XLEN-1:0]  mepc;
+    logic [XLEN-1:0]  mtvec;
+    trap_t            trap;
     logic [XLEN-1:0]  next_pc_out;
+    logic             address_misaligned;
 
     int tests_run;
     int tests_failed;
@@ -19,6 +23,10 @@ module tb_next_pc;
         .rs1_data_i(rs1_data),
         .rs2_data_i(rs2_data),
         .alu_res_i(alu_res),
+        .mepc_i(mepc),
+        .mtvec_i(mtvec),
+        .trap_i(trap),
+        .address_misaligned_o(address_misaligned),
         .next_pc_o(next_pc_out)
     );
 
@@ -43,6 +51,7 @@ module tb_next_pc;
     );
         begin
             ctrl = '0;
+            trap = '0;
             ctrl.branch = branch_in && branch_funct3_valid(f3);
             ctrl.jal = jal_in;
             ctrl.jalr = jalr_in;
@@ -66,7 +75,7 @@ module tb_next_pc;
             tests_run++;
             if (next_pc_out !== expected) begin
                 tests_failed++;
-                $error("%s: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s: expected 0x%08x, got 0x%08x",
                        name, expected, next_pc_out);
             end
         end
@@ -75,6 +84,9 @@ module tb_next_pc;
     initial begin
         tests_run = 0;
         tests_failed = 0;
+        mepc = 32'h0000_3000;
+        mtvec = 32'h0000_4000;
+        trap = '0;
 
         check("sequential pc",
               1'b0, 1'b0, 1'b0, EQ, 32'd16, 32'h0000_1000,
@@ -142,11 +154,35 @@ module tb_next_pc;
               1'b0, 1'b1, 1'b1, EQ, 32'd20, 32'h0000_1000,
               32'h0000_2001, 32'd0, 32'h0000_1014);
 
+        ctrl = '0;
+        trap = '0;
+        pc = 32'h0000_1000;
+        rs1_data = '0;
+        rs2_data = '0;
+        alu_res = '0;
+        #1;
+        tests_run++;
+        if (address_misaligned !== 1'b0) begin
+            tests_failed++;
+            $fatal(1, "sequential four-byte-aligned PC must not be misaligned");
+        end
+
+        ctrl = '0;
+        ctrl.jal = 1'b1;
+        pc = 32'h0000_1000;
+        alu_res = 32'h0000_1002;
+        #1;
+        tests_run++;
+        if (address_misaligned !== 1'b1) begin
+            tests_failed++;
+            $fatal(1, "taken control transfer to a two-byte-aligned target must be misaligned");
+        end
+
         if (tests_failed == 0) begin
             $display("tb_next_pc: all %0d tests passed", tests_run);
             $finish;
+        end else begin
+            $fatal(1, "tb_next_pc: %0d of %0d tests failed", tests_failed, tests_run);
         end
-
-        $fatal(1, "tb_next_pc: %0d of %0d tests failed", tests_failed, tests_run);
     end
 endmodule : tb_next_pc

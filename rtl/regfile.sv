@@ -40,7 +40,7 @@ module regfile (
             WB_IMM : value_to_write = imm_i;
             WB_PC_PLUS_4 : value_to_write = pc_i + PC_INC;
             WB_CSR : value_to_write = csr_i;
-            default : $fatal();
+            default : $fatal(1);
         endcase
     end
 endmodule

@@ -16,6 +16,7 @@ module tb_memory_controller_sram;
     logic [TEST_DWIDTH-1:0]       load_data;
     logic [(TEST_DWIDTH/8)-1:0]   we;
     ctrl_t                        ctrl;
+    logic                         commit;
 
     int tests_run;
     int tests_failed;
@@ -36,6 +37,7 @@ module tb_memory_controller_sram;
     memory_controller controller (
         .data_i(raw_data),
         .ctrl_i(ctrl),
+        .commit_i(commit),
         .data_o(load_data),
         .we_o(we)
     );
@@ -105,7 +107,7 @@ module tb_memory_controller_sram;
             tests_run++;
             if (load_data !== expected) begin
                 tests_failed++;
-                $error("%s: expected load 0x%08x, got 0x%08x",
+                $fatal(1, "%s: expected load 0x%08x, got 0x%08x",
                        name, expected, load_data);
             end
         end
@@ -124,7 +126,7 @@ module tb_memory_controller_sram;
             tests_run++;
             if (raw_data !== expected) begin
                 tests_failed++;
-                $error("%s: expected raw word 0x%08x, got 0x%08x",
+                $fatal(1, "%s: expected raw word 0x%08x, got 0x%08x",
                        name, expected, raw_data);
             end
         end
@@ -142,12 +144,12 @@ module tb_memory_controller_sram;
             tests_run++;
             if (load_data !== '0) begin
                 tests_failed++;
-                $error("%s data: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s data: expected 0x%08x, got 0x%08x",
                        name, '0, load_data);
             end
             if (we !== '0) begin
                 tests_failed++;
-                $error("%s we: expected 0b%04b, got 0b%04b",
+                $fatal(1, "%s we: expected 0b%04b, got 0b%04b",
                        name, '0, we);
             end
         end
@@ -167,6 +169,7 @@ module tb_memory_controller_sram;
         address = TEST_START;
         store_data = '0;
         ctrl = '0;
+        commit = 1'b1;
         tests_run = 0;
         tests_failed = 0;
 
@@ -210,9 +213,9 @@ module tb_memory_controller_sram;
             $display("tb_memory_controller_sram: all %0d checks passed",
                      tests_run);
             $finish;
+        end else begin
+            $fatal(1, "tb_memory_controller_sram: %0d of %0d checks failed",
+                   tests_failed, tests_run);
         end
-
-        $fatal(1, "tb_memory_controller_sram: %0d of %0d checks failed",
-               tests_failed, tests_run);
     end
 endmodule : tb_memory_controller_sram

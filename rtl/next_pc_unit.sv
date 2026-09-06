@@ -20,14 +20,13 @@ module next_pc_unit (
     assign op1 = rs1_data_i, op2 = rs2_data_i;
     assign op1_signed = signed'(op1), op2_signed = signed'(op2);
     assign pc_seq = pc_i + PC_INC;
-    // assign next_pc_o = branch_taken ? pc_branch : pc_seq;
 
     always_comb begin
         // In the case of a return from a trap, we want to branch to the MEPC
         case (ctrl_i.branch_src)
             SRC_ALU : pc_branch = alu_res_i;
             SRC_MEPC : pc_branch = mepc_i;
-            default : $fatal;
+            default : $fatal(1);
         endcase
         branch_taken = 1'b0;
         address_misaligned_o = '0;
@@ -59,14 +58,18 @@ module next_pc_unit (
                     end else
                         next_pc_o = {mtvec_i[XLEN-1:2], 2'b00};
                 end
-                default: $fatal(1, "Unimplemented trap_mode_t enum");
+                // MTVEC writes are legalized to direct or vectored mode. Use
+                // direct mode defensively while reset-state signals settle.
+                default: next_pc_o = {mtvec_i[XLEN-1:2], 2'b00};
             endcase
         end else if (branch_taken)
             next_pc_o = pc_branch;
         else
             next_pc_o = pc_seq;
 
-        if (next_pc_o % IALIGN != 0)
+        // If branch is not aligned
+        // NOTE: must change if IALIGN changes.
+        if (branch_taken && (pc_branch[1:0] != 2'b00))
             address_misaligned_o = '1;
     end
 endmodule

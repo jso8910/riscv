@@ -12,6 +12,8 @@ module csrfile (
     output logic [XLEN-1:0]      csr_val_o,
     output logic [XLEN-1:0]      mepc_o,
     output logic [XLEN-1:0]      mtvec_o,
+    output logic [7:0]           pmp_cfg_o [0:63],
+    output logic [XLEN-1:0]      pmp_addr_o [0:63],
     output logic                 csr_illegal_inst_o,
     output machine_privilege_t   machine_privilege_o
 );
@@ -25,7 +27,10 @@ module csrfile (
     logic [63:0] mcycle_full, minstret_full;
 
     // physical memory protection CSRs
-    pmp_entry_t pmp_entries [0:63];
+    // Separate arrays avoid an Icarus elaboration failure on variable indexes
+    // into an unpacked array of packed structs.
+    logic [7:0]      pmp_cfg [0:63];
+    logic [XLEN-1:0] pmp_addr [0:63];
 
     // Some internal signals
     logic [XLEN-1:0] value_to_write;
@@ -36,6 +41,9 @@ module csrfile (
 
     // Current privilege level
     machine_privilege_t machine_privilege;
+
+    assign pmp_cfg_o = pmp_cfg;
+    assign pmp_addr_o = pmp_addr;
 
     // We want to either 0 extend a 5 bit immediate (stored in the rs1 address field) or take the
     // value of rs1
@@ -74,7 +82,19 @@ module csrfile (
         end
 
         if (ctrl_i.csr_read && !csr_illegal_inst_o) begin
-            case (ctrl_i.csr_addr) inside
+            if (ctrl_i.csr_addr >= PMPCFG0 && ctrl_i.csr_addr <= PMPCFG15) begin
+                for (int i = 0; i < PMP_ENTRIES_PER_CFG_CSR; i++) begin
+                    csr_val_o[8*i +: 8] = pmp_cfg[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i];
+                end
+            end else if (ctrl_i.csr_addr >= PMPADDR0 && ctrl_i.csr_addr <= PMPADDR63) begin
+                csr_val_o = pmp_addr[pmpaddr_index];
+            end else if ((ctrl_i.csr_addr >= MHPMCOUNTER3 && ctrl_i.csr_addr <= MHPMCOUNTER31)
+                         || (ctrl_i.csr_addr >= MHPMCOUNTER3H && ctrl_i.csr_addr <= MHPMCOUNTER31H)
+                         || (ctrl_i.csr_addr >= MHPMEVENT3 && ctrl_i.csr_addr <= MHPMEVENT31)
+                         || (ctrl_i.csr_addr >= MHPMEVENT3H && ctrl_i.csr_addr <= MHPMEVENT31H)) begin
+                csr_val_o = '0;
+            end else begin
+            case (ctrl_i.csr_addr)
                 MEPC : csr_val_o = mepc;
                 MISA : csr_val_o = MISA_VAL;
                 MVENDORID : csr_val_o = '0; // These values aren't implemented on this core
@@ -94,26 +114,16 @@ module csrfile (
                 MENVCFGH : csr_val_o = menvcfgh;
                 MSECCFG : csr_val_o = mseccfg;
                 MSECCFGH : csr_val_o = mseccfgh;
-                [PMPCFG0:PMPCFG15] : begin
-                    for (int i = 0; i < PMP_ENTRIES_PER_CFG_CSR; i++) begin
-                        csr_val_o[8*i +: 8] = pmp_entries[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i].cfg;
-                    end
-                end
-                [PMPADDR0:PMPADDR63] : csr_val_o = pmp_entries[pmpaddr_index].addr;
                 MCYCLE : csr_val_o = mcycle;
                 MCYCLEH : csr_val_o = mcycleh;
                 MINSTRET : csr_val_o = minstret;
                 MINSTRETH : csr_val_o = minstreth;
-                // These counters are not implemented
-                [MHPMCOUNTER3:MHPMCOUNTER31] : csr_val_o = '0;
-                [MHPMCOUNTER3H:MHPMCOUNTER31H] : csr_val_o = '0;
-                [MHPMEVENT3:MHPMEVENT31] : csr_val_o = '0;
-                [MHPMEVENT3H:MHPMEVENT31H] : csr_val_o = '0;
                 MCOUNTINHIBIT : csr_val_o = mcountinhibit;
                 // If we get here, something has gone wrong (ie we are either allowing a CSR address
                 // we shouldn't, or not all CSRs have been implemented)
                 default: $fatal(1, "CSR read CASE statement missing CSR: %h", ctrl_i.csr_addr);
             endcase
+            end
         end
 
         // Set value to write
@@ -143,7 +153,8 @@ module csrfile (
             mseccfg <= '0;
             mseccfgh <= '0;
             for (int i = 0; i <= 63; i++) begin
-                pmp_entries[i] <= '0;
+                pmp_cfg[i] <= '0;
+                pmp_addr[i] <= '0;
             end
             mcycle_full <= '0;
             minstret_full <= '0;
@@ -181,7 +192,31 @@ module csrfile (
                 if (machine_privilege_t'(mstatus[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB]) != M_MODE)
                     mstatus[MSTATUS_MPRV] <= '0;
             end else if (ctrl_i.csr_write && !csr_illegal_inst_o) begin
-                case (ctrl_i.csr_addr) inside
+                if (ctrl_i.csr_addr >= PMPCFG0 && ctrl_i.csr_addr <= PMPCFG15) begin
+                    for (int i = 0; i < PMP_ENTRIES_PER_CFG_CSR; i++) begin
+                        if (!pmp_cfg[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i][PMPCFG_L_IDX]) begin
+                            pmp_cfg[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i] <=
+                                value_to_write[8*i +: 8]
+                                & ((value_to_write[8*i + PMPCFG_W_IDX]
+                                    && !value_to_write[8*i + PMPCFG_R_IDX]) ? 8'hfd : 8'hff);
+                        end
+                    end
+                end else if (ctrl_i.csr_addr >= PMPADDR0 && ctrl_i.csr_addr <= PMPADDR63) begin
+                    if (!pmp_cfg[pmpaddr_index][PMPCFG_L_IDX]) begin
+                        if (pmpaddr_index == 6'd63) begin
+                            pmp_addr[pmpaddr_index] <= value_to_write;
+                        end else if (!pmp_cfg[pmpaddr_index + 1'b1][PMPCFG_L_IDX]
+                                     || pmp_addr_matching_t'(pmp_cfg[pmpaddr_index + 1'b1][PMPCFG_A_MSB:PMPCFG_A_LSB]) != PMP_TOR) begin
+                            pmp_addr[pmpaddr_index] <= value_to_write;
+                        end
+                    end
+                end else if ((ctrl_i.csr_addr >= MHPMCOUNTER3 && ctrl_i.csr_addr <= MHPMCOUNTER31)
+                             || (ctrl_i.csr_addr >= MHPMCOUNTER3H && ctrl_i.csr_addr <= MHPMCOUNTER31H)
+                             || (ctrl_i.csr_addr >= MHPMEVENT3 && ctrl_i.csr_addr <= MHPMEVENT31)
+                             || (ctrl_i.csr_addr >= MHPMEVENT3H && ctrl_i.csr_addr <= MHPMEVENT31H)) begin
+                    // Unimplemented HPM counters and event selectors are writable no-ops.
+                end else begin
+                case (ctrl_i.csr_addr)
                     MEPC : mepc <= legalize_csr_write(MEPC, value_to_write, mepc);
                     MISA : ;    // misa is effectively unwritable because the ISA does not change.
                     MSTATUS : mstatus <= legalize_csr_write(MSTATUS, value_to_write, mstatus);
@@ -196,47 +231,23 @@ module csrfile (
                     MENVCFGH : menvcfgh <= legalize_csr_write(MENVCFGH, value_to_write, menvcfgh);
                     MSECCFG : mseccfg <= legalize_csr_write(MSECCFG, value_to_write, mseccfg);
                     MSECCFGH : mseccfgh <= legalize_csr_write(MSECCFGH, value_to_write, mseccfgh);
-                    [PMPCFG0:PMPCFG15] : begin
-                        for (int i = 0; i < PMP_ENTRIES_PER_CFG_CSR; i++) begin
-                            if (!pmp_entries[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i].cfg[PMPCFG_L_IDX]) begin
-                                // This case (R = 0, W = 1) is reserved. Fallback to R = 0, W = 0.
-                                pmp_entries[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i].cfg <=
-                                    value_to_write[8*i +: 8]
-                                    & ((value_to_write[8*i + PMPCFG_W_IDX]
-                                        && !value_to_write[8*i + PMPCFG_R_IDX]) ? 8'hfd : 8'hff);
-                            end
-                        end
-                    end
-                    [PMPADDR0:PMPADDR63] : begin
-                        if (!pmp_entries[pmpaddr_index].cfg[PMPCFG_L_IDX]) begin
-                            if (pmpaddr_index == 6'd63) begin
-                                pmp_entries[pmpaddr_index].addr <= value_to_write;
-                            end else if (!pmp_entries[pmpaddr_index + 1'b1].cfg[PMPCFG_L_IDX]
-                                         || pmp_addr_matching_t'(pmp_entries[pmpaddr_index + 1'b1].cfg[PMPCFG_A_MSB:PMPCFG_A_LSB]) != PMP_TOR) begin
-                                pmp_entries[pmpaddr_index].addr <= value_to_write;
-                            end
-                        end
-                    end
                     MCYCLE : mcycle_full[31:0] <= value_to_write;
                     MCYCLEH : mcycle_full[63:32] <= value_to_write;
                     MINSTRET : minstret_full[31:0] <= value_to_write;
                     MINSTRETH : minstret_full[63:32] <= value_to_write;
-                    [MHPMCOUNTER3:MHPMCOUNTER31] : ;
-                    [MHPMCOUNTER3H:MHPMCOUNTER31H] : ;
-                    [MHPMEVENT3:MHPMEVENT31] : ;
-                    [MHPMEVENT3H:MHPMEVENT31H] : ;
                     MCOUNTINHIBIT : mcountinhibit <= legalize_csr_write(MCOUNTINHIBIT, value_to_write, mcountinhibit);
                     // If we get here, something has gone wrong (ie we are either allowing a CSR address
                     // we shouldn't, or not all CSRs have been implemented)
                     default: $fatal(1, "CSR write CASE statement missing CSR: %h", ctrl_i.csr_addr);
                 endcase
+                end
             end
 
             // Increment cycle counter and instruction count ONLY if it wasn't written by a CSR
             // operation. mcountinhibit should also not be set. So both these conditions must be met
-            if (!mcountinhibit[MCOUNTINHIBIT_CY] && (!ctrl_i.csr_write || csr_illegal_inst_o || !(ctrl_i.csr_addr inside {MCYCLE, MCYCLEH})))
+            if (!mcountinhibit[MCOUNTINHIBIT_CY] && (!ctrl_i.csr_write || csr_illegal_inst_o || (ctrl_i.csr_addr != MCYCLE && ctrl_i.csr_addr != MCYCLEH)))
                 mcycle_full <= mcycle_full + 64'(cycle_tick_i);
-            if (!mcountinhibit[MCOUNTINHIBIT_IR] && (!ctrl_i.csr_write || csr_illegal_inst_o || !(ctrl_i.csr_addr inside {MINSTRET, MINSTRETH})))
+            if (!mcountinhibit[MCOUNTINHIBIT_IR] && (!ctrl_i.csr_write || csr_illegal_inst_o || (ctrl_i.csr_addr != MINSTRET && ctrl_i.csr_addr != MINSTRETH)))
             minstret_full <= minstret_full + 64'(retire_count_i);
         end
     end
@@ -244,30 +255,20 @@ module csrfile (
 function automatic logic csr_addr_exists(
     input logic [11:0] csr_addr
 );
-    return csr_addr inside {
-        [MVENDORID:MCONFIGPTR],
-        MSTATUS,
-        MISA,
-        MIE,
-        MTVEC,
-        MENVCFG,
-        MSTATUSH,
-        MENVCFGH,
-        [MSCRATCH:MIP],
-        MSECCFG,
-        MSECCFGH,
-        [PMPCFG0:PMPCFG15],
-        [PMPADDR0:PMPADDR63],
-        MCYCLE,
-        MCYCLEH,
-        MINSTRET,
-        MINSTRETH,
-        [MHPMCOUNTER3:MHPMCOUNTER31],
-        [MHPMCOUNTER3H:MHPMCOUNTER31H],
-        [MHPMEVENT3:MHPMEVENT31],
-        [MHPMEVENT3H:MHPMEVENT31H],
-        MCOUNTINHIBIT
-    };
+    return (csr_addr >= MVENDORID && csr_addr <= MCONFIGPTR)
+        || csr_addr == MSTATUS || csr_addr == MISA || csr_addr == MIE || csr_addr == MTVEC
+        || csr_addr == MENVCFG || csr_addr == MSTATUSH || csr_addr == MENVCFGH
+        || (csr_addr >= MSCRATCH && csr_addr <= MIP)
+        || csr_addr == MSECCFG || csr_addr == MSECCFGH
+        || (csr_addr >= PMPCFG0 && csr_addr <= PMPCFG15)
+        || (csr_addr >= PMPADDR0 && csr_addr <= PMPADDR63)
+        || csr_addr == MCYCLE || csr_addr == MCYCLEH
+        || csr_addr == MINSTRET || csr_addr == MINSTRETH
+        || (csr_addr >= MHPMCOUNTER3 && csr_addr <= MHPMCOUNTER31)
+        || (csr_addr >= MHPMCOUNTER3H && csr_addr <= MHPMCOUNTER31H)
+        || (csr_addr >= MHPMEVENT3 && csr_addr <= MHPMEVENT31)
+        || (csr_addr >= MHPMEVENT3H && csr_addr <= MHPMEVENT31H)
+        || csr_addr == MCOUNTINHIBIT;
 endfunction
 
 function automatic logic [XLEN-1:0] legalize_csr_write(
@@ -275,13 +276,13 @@ function automatic logic [XLEN-1:0] legalize_csr_write(
     input logic [XLEN-1:0] value,
     input logic [XLEN-1:0] prev_val
 );
-    case (csr_addr) inside
+    case (csr_addr)
         // MEPC[1:0] cannot take any value other than 'b00
         MEPC : legalize_csr_write = value & 32'hFFFF_FFFC;
         MSTATUS : begin
             legalize_csr_write = (value & MSTATUS_WRITE_MASK_VAL) | (prev_val & ~MSTATUS_WRITE_MASK_VAL);
-            if (machine_privilege_t'(legalize_csr_write[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB]) != IMPLEMENTED_PRIVILEGES[0]) begin
-                legalize_csr_write[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB] = IMPLEMENTED_PRIVILEGES[0];
+            if (machine_privilege_t'(legalize_csr_write[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB]) != IMPLEMENTED_PRIVILEGE) begin
+                legalize_csr_write[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB] = IMPLEMENTED_PRIVILEGE;
             end
         end
         MSTATUSH : begin
@@ -303,13 +304,17 @@ function automatic logic [XLEN-1:0] legalize_csr_write(
             legalize_csr_write = value;
             // There are different sets of legal values depending on the bit at XLEN-1
             if (legalize_csr_write[XLEN-1]) begin     // interrupt mode
-                if (!(legalize_csr_write[XLEN-2:0] inside {1, 3, 5, 7, 9, 11, 13})) begin
+                if (legalize_csr_write[XLEN-2:0] != 1 && legalize_csr_write[XLEN-2:0] != 3
+                    && legalize_csr_write[XLEN-2:0] != 5 && legalize_csr_write[XLEN-2:0] != 7
+                    && legalize_csr_write[XLEN-2:0] != 9 && legalize_csr_write[XLEN-2:0] != 11
+                    && legalize_csr_write[XLEN-2:0] != 13) begin
                     // TODO: is this a good default value?
                     // Sets mcause to 0 if a reserved value was used by the software manual write
                     legalize_csr_write = '0;
                 end
             end else begin                             // Normal errors
-                if (legalize_csr_write[XLEN-2:0] inside {10, 14, 17} || legalize_csr_write[XLEN-2:0] >= 20) begin
+                if (legalize_csr_write[XLEN-2:0] == 10 || legalize_csr_write[XLEN-2:0] == 14
+                    || legalize_csr_write[XLEN-2:0] == 17 || legalize_csr_write[XLEN-2:0] >= 20) begin
                     legalize_csr_write = '0;
                 end
             end
