@@ -13,6 +13,8 @@ package riscv;
     localparam logic [XLEN-1:0] MEM_START_ADDRESS = 'h00_00_00_00;
     localparam logic [XLEN-1:0] MEM_END_ADDRESS   = 'h00_1f_ff_ff;
 
+    typedef logic [XLEN-1:0] uintxlen_t;
+
     // ================
     // Privilege levels
     // ================
@@ -132,6 +134,13 @@ package riscv;
     // Same with the upper halves
     localparam logic [11:0] MHPMCOUNTER3H  = 'hB83;
     localparam logic [11:0] MHPMCOUNTER31H = 'hB9F;
+
+    // ### User counter/timers
+    // Read-only views of the machine cycle and instruction-retired counters.
+    localparam logic [11:0] CYCLE          = 'hC00;
+    localparam logic [11:0] INSTRET        = 'hC02;
+    localparam logic [11:0] CYCLEH         = 'hC80;
+    localparam logic [11:0] INSTRETH       = 'hC82;
 
     // ### Machine counter setup
     localparam logic [11:0] MCOUNTINHIBIT  = 'h320;

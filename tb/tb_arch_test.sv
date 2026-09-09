@@ -39,7 +39,7 @@ module tb_arch_test;
 
     function automatic logic [7:0] read_memory(input logic [XLEN-1:0] addr);
         begin
-            if (addr >= MEM_START_ADDRESS && addr <= MEM_END_ADDRESS) begin
+            if (addr <= MEM_END_ADDRESS) begin
                 return memory[addr - MEM_START_ADDRESS];
             end
             return 8'h00;
@@ -73,7 +73,7 @@ module tb_arch_test;
             while (!$feof(fd)) begin
                 matched = $fscanf(fd, "%h %h\n", addr, value);
                 if (matched == 2) begin
-                    if (addr >= MEM_START_ADDRESS && addr <= MEM_END_ADDRESS) begin
+                    if (addr <= MEM_END_ADDRESS) begin
                         memory[addr - MEM_START_ADDRESS] = value[7:0];
                     end
                     count++;
@@ -104,9 +104,7 @@ module tb_arch_test;
     always @(posedge clk) begin
         if (rst_n) begin
             for (int i = 0; i < WWIDTH/8; i++) begin
-                if (data_mem_we[i]
-                    && data_mem_addr + i >= MEM_START_ADDRESS
-                    && data_mem_addr + i <= MEM_END_ADDRESS) begin
+                if (data_mem_we[i] && data_mem_addr + i <= MEM_END_ADDRESS) begin
                     memory[data_mem_addr + i - MEM_START_ADDRESS] = data_mem_wdata[i * 8 +: 8];
                 end
             end

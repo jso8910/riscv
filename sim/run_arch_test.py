@@ -13,10 +13,8 @@ import tempfile
 from pathlib import Path
 
 
-IMEM_START = 0x00000000
-IMEM_END = 0x000FFFFF
-DMEM_START = 0x00100000
-DMEM_END = 0x001FFFFF
+MEM_START = 0x00000000
+MEM_END = 0x001FFFFF
 
 
 def run_checked(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -63,7 +61,7 @@ def extract_memory_records(combined_memh: Path, memory_path: Path) -> None:
     records: list[tuple[int, int]] = []
 
     for addr, value in iter_verilog_bytes(combined_memh):
-        if IMEM_START <= addr <= IMEM_END or DMEM_START <= addr <= DMEM_END:
+        if MEM_START <= addr <= MEM_END:
             records.append((addr, value))
 
     write_memory_records(records, memory_path)
@@ -163,6 +161,7 @@ def compile_verilator_testbench(repo_root: Path, *, rebuild: bool) -> Path | Non
                     "tb_arch_test",
                     "--Mdir",
                     str(build_dir),
+                    "-Wno-TIMESCALEMOD",
                     "-Wno-fatal",
                     "-f",
                     "sim/core_rtl.f",

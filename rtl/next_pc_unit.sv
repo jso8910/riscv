@@ -47,7 +47,16 @@ module next_pc_unit (
             endcase
         end
 
-        // Set next PC
+        // If branch is not aligned.
+        // NOTE: must change if IALIGN changes.
+        if (branch_taken && (pc_branch[1:0] != 2'b00))
+            address_misaligned_o = '1;
+    end
+
+    always_comb begin
+        // Set next PC.  This is separate from branch-target alignment so an
+        // instruction-address-misaligned exception cannot form a combinational
+        // loop through trap generation.
         if (trap_i.is_trap) begin
             case (trap_mode_t'(mtvec_i[1:0]))
                 TRAP_DIRECT : next_pc_o = {mtvec_i[XLEN-1:2], 2'b00};
@@ -67,9 +76,5 @@ module next_pc_unit (
         else
             next_pc_o = pc_seq;
 
-        // If branch is not aligned
-        // NOTE: must change if IALIGN changes.
-        if (branch_taken && (pc_branch[1:0] != 2'b00))
-            address_misaligned_o = '1;
     end
 endmodule

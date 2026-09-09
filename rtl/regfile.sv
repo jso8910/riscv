@@ -34,6 +34,7 @@ module regfile (
     end
 
     always_comb begin
+        value_to_write = '0;
         case (ctrl_i.wb_sel)
             WB_ALU : value_to_write = alu_i;
             WB_MEM : value_to_write = mem_i;

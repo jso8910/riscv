@@ -120,6 +120,10 @@ module csrfile (
                 MCYCLEH : csr_val_o = mcycleh;
                 MINSTRET : csr_val_o = minstret;
                 MINSTRETH : csr_val_o = minstreth;
+                CYCLE : csr_val_o = mcycle;
+                CYCLEH : csr_val_o = mcycleh;
+                INSTRET : csr_val_o = minstret;
+                INSTRETH : csr_val_o = minstreth;
                 MCOUNTINHIBIT : csr_val_o = mcountinhibit;
                 default: csr_val_o = '0;
                 // We can't use this assertion because sometimes transient states will result in a
@@ -269,6 +273,8 @@ function automatic logic csr_addr_exists(
         || (csr_addr >= PMPADDR0 && csr_addr <= PMPADDR63)
         || csr_addr == MCYCLE || csr_addr == MCYCLEH
         || csr_addr == MINSTRET || csr_addr == MINSTRETH
+        || csr_addr == CYCLE || csr_addr == CYCLEH
+        || csr_addr == INSTRET || csr_addr == INSTRETH
         || (csr_addr >= MHPMCOUNTER3 && csr_addr <= MHPMCOUNTER31)
         || (csr_addr >= MHPMCOUNTER3H && csr_addr <= MHPMCOUNTER31H)
         || (csr_addr >= MHPMEVENT3 && csr_addr <= MHPMEVENT31)

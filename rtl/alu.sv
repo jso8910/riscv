@@ -32,6 +32,7 @@ module alu (
             ALU_SLL : res_o = op1 << shamt;
             ALU_SRL : res_o = op1 >> shamt;
             ALU_SRA : res_o = op1_signed >>> shamt;
+            default : $fatal(1);
         endcase
     end
 endmodule : alu

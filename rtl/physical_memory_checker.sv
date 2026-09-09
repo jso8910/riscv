@@ -20,7 +20,9 @@ module physical_memory_checker (
 );
     logic access_empty;
     logic [XLEN-1:0] access_addresses [0:3];
+    /* verilator lint_off ASCRANGE */
     pma_cfg_t [0:2] pma_cfgs;
+    /* verilator lint_on ASCRANGE */
 
     logic access_pmp_matched, pc_pmp_matched, all_access_bytes, all_pc_bytes,
           bypass_permissions;
@@ -105,9 +107,9 @@ module physical_memory_checker (
             end
             MEM_WORD : begin
                 access_addresses[0] = data_mem_addr_i;
-                access_addresses[1] = data_mem_addr_i + 1'd1;
-                access_addresses[2] = data_mem_addr_i + 2'd2;
-                access_addresses[3] = data_mem_addr_i + 2'd3;
+                access_addresses[1] = data_mem_addr_i + uintxlen_t'(1);
+                access_addresses[2] = data_mem_addr_i + uintxlen_t'(2);
+                access_addresses[3] = data_mem_addr_i + uintxlen_t'(3);
             end
             MEM_NONE : begin
                 access_addresses[0] = data_mem_addr_i;
@@ -156,9 +158,10 @@ module physical_memory_checker (
 
         pma_instruction_fetch_exception_o = '0;
         for (int i = 3; i >= 0; i--) begin
-            pma_instruction_fetch_exception_o = pma_instruction_fetch_exception_o || (!pma_readable(pc_i + i) || !pma_main(pc_i + i));
-            if (!pma_readable(pc_i + i) || !pma_main(pc_i + i)) begin
-                pma_faulting_addr_o = pc_i + i;
+            pma_instruction_fetch_exception_o = pma_instruction_fetch_exception_o || (!pma_readable(pc_i + uintxlen_t'(i)) || !pma_main(pc_i + uintxlen_t'(i)));
+            
+            if (!pma_readable(pc_i + uintxlen_t'(i)) || !pma_main(pc_i + uintxlen_t'(i))) begin
+                pma_faulting_addr_o = pc_i + uintxlen_t'(i);
             end
         end
 
@@ -187,7 +190,7 @@ module physical_memory_checker (
         pc_pmp_range_top = 0;
 
         for (int i = 63; i >= 0; i--) begin
-            case (pmp_cfg_i[i][PMPCFG_A_MSB : PMPCFG_A_LSB])
+            case (pmp_addr_matching_t'(pmp_cfg_i[i][PMPCFG_A_MSB : PMPCFG_A_LSB]))
                 PMP_OFF : begin
                     // 0..0 doesn't match
                     bottom_of_range = 0;
@@ -206,7 +209,7 @@ module physical_memory_checker (
                 PMP_NA4 : begin
                     // range is (pmp_addr_i[i] << 2)..((pmp_addr_i[i] << 2) + 4)
                     bottom_of_range = {1'b0, pmp_addr_i[i], 2'b00};
-                    top_of_range = {1'b0, pmp_addr_i[i], 2'b00} + 4;
+                    top_of_range = {1'b0, pmp_addr_i[i], 2'b00} + (XLEN + 3)'(3'd4);
                 end
                 PMP_NAPOT : begin
                     n_trailing_1s = 0;
@@ -219,7 +222,7 @@ module physical_memory_checker (
                         // The moment this if statement isn't taken, n_trailing_1s == j will never
                         // be true again, and thus it will never be incremented again.
                         if (pmp_addr_i[i][j] == 1'b1) begin
-                            if (n_trailing_1s == j) begin
+                            if (n_trailing_1s == j[5:0]) begin
                                 n_trailing_1s += 1;
                             end
                         end
@@ -230,7 +233,7 @@ module physical_memory_checker (
                     bottom_of_range = ({3'b000, pmp_addr_i[i]} >> (n_trailing_1s + 1))
                                       << (n_trailing_1s + 3);
                     top_of_range = bottom_of_range
-                                 + ((XLEN + 3)'(1) << (3 + n_trailing_1s));
+                                 + ((XLEN + 3)'(1'b1) << (3 + n_trailing_1s));
                 end
                 // Here, I skip the $fatal(1) because I specifically know that there will never be
                 // any more PMA modes.
@@ -240,14 +243,14 @@ module physical_memory_checker (
                 default: ;
             endcase
             for (int j = 0; j < 4; j++) begin
-                if (bottom_of_range <= access_addresses[j] && access_addresses[j] < top_of_range) begin
-                    access_matching_pmp_idx = i;
+                if (bottom_of_range <= {3'b000, access_addresses[j]} && {3'b000, access_addresses[j]} < top_of_range) begin
+                    access_matching_pmp_idx = i[5:0];
                     access_pmp_matched = 1;
                     access_pmp_range_btm = bottom_of_range;
                     access_pmp_range_top = top_of_range;
                 end
-                if (bottom_of_range <= pc_i + j && pc_i + j < top_of_range) begin
-                    pc_matching_pmp_idx = i;
+                if (bottom_of_range <= ({3'b000, pc_i} + (XLEN + 3)'(unsigned'(j))) && ({3'b000, pc_i} + (XLEN + 3)'(unsigned'(j))) < top_of_range) begin
+                    pc_matching_pmp_idx = i[5:0];
                     pc_pmp_matched = 1;
                     pc_pmp_range_btm = bottom_of_range;
                     pc_pmp_range_top = top_of_range;
@@ -273,7 +276,7 @@ module physical_memory_checker (
         for (int i = 0; i < 4; i++) begin
             // this works even if no pmp matched because the default (0..0) has no address matches
             // even in any edge case
-            if (!(access_pmp_range_btm <= access_addresses[i] && access_addresses[i] < access_pmp_range_top)) begin
+            if (!(access_pmp_range_btm <= {3'b000, access_addresses[i]} && {3'b000, access_addresses[i]} < access_pmp_range_top)) begin
                 all_access_bytes = 0;
             end
         end
@@ -295,7 +298,7 @@ module physical_memory_checker (
         for (int i = 0; i < 4; i++) begin
             // this works even if no pmp matched because the default (0..0) has no address matches
             // even in any edge case
-            if (!(pc_pmp_range_btm <= pc_i + i && pc_i + i < pc_pmp_range_top)) begin
+            if (!(pc_pmp_range_btm <= ({3'b000, pc_i} + (XLEN + 3)'(unsigned'(i))) && ({3'b000, pc_i} + (XLEN + 3)'(unsigned'(i))) < pc_pmp_range_top)) begin
                 all_pc_bytes = 0;
             end
         end

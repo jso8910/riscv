@@ -25,11 +25,11 @@ module sram #(
         // This should be in some external memory controller, because it's not possible to know if
         // eg address_i + 2 being outside the range is invalid or not from here.
         for (int i = 0; i < NUM_BYTES; i++) begin
-            mem_byte_array[i] = (address_1_i + i <= END_ADDRESS) && (address_1_i + i >= START_ADDRESS) ? mem[address_1_i + i] : 8'b0;
+            mem_byte_array[i] = (address_1_i + unsigned'(i) <= END_ADDRESS) && (address_1_i + unsigned'(i) >= START_ADDRESS) ? mem[address_1_i + unsigned'(i)] : 8'b0;
             data_1_o[i * 8 +: 8] = mem_byte_array[i];
         end
         for (int i = 0; i < NUM_BYTES; i++) begin
-            mem_byte_array[i] = (address_2_i + i <= END_ADDRESS) && (address_2_i + i >= START_ADDRESS) ? mem[address_2_i + i] : 8'b0;
+            mem_byte_array[i] = (address_2_i + unsigned'(i) <= END_ADDRESS) && (address_2_i + unsigned'(i) >= START_ADDRESS) ? mem[address_2_i + unsigned'(i)] : 8'b0;
             data_2_o[i * 8 +: 8] = mem_byte_array[i];
         end
     end
@@ -41,8 +41,8 @@ module sram #(
         // is not correct (since the address after END_ADDRESS is simply a part of another
         // segment of memory).
         for (int i = 0; i < NUM_BYTES; i++) begin
-            if (we_i[i] == 1'b1 && (address_1_i + i <= END_ADDRESS) && (address_1_i + i >= START_ADDRESS)) begin
-                mem[address_1_i + i] <= data_i[i * 8 +: 8];
+            if (we_i[i] == 1'b1 && (address_1_i + unsigned'(i) <= END_ADDRESS) && (address_1_i + unsigned'(i) >= START_ADDRESS)) begin
+                mem[address_1_i + unsigned'(i)] <= data_i[i * 8 +: 8];
             end
         end
     end
