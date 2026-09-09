@@ -41,14 +41,13 @@ fromhost:                                            \
  *   tohost = 1 -> PASS
  *   tohost = 3 -> FAIL
  *
- * tohost is 64 bits, so on RV32 we perform two 32-bit stores.
+ * tohost is 64 bits, so RV64 can write it atomically.
  */
 #define RVMODEL_HALT_PASS                            \
   li x1, 1;                                          \
   la t0, tohost;                                     \
 1:                                                   \
-  sw x1, 0(t0);                                      \
-  sw x0, 4(t0);                                      \
+  sd x1, 0(t0);                                      \
   j 1b;
 
 
@@ -56,8 +55,7 @@ fromhost:                                            \
   li x1, 3;                                          \
   la t0, tohost;                                     \
 1:                                                   \
-  sw x1, 0(t0);                                      \
-  sw x0, 4(t0);                                      \
+  sd x1, 0(t0);                                      \
   j 1b;
 
 

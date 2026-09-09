@@ -75,7 +75,7 @@ module tb_next_pc;
             tests_run++;
             if (next_pc_out !== expected) begin
                 tests_failed++;
-                $fatal(1, "%s: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s: expected 0x%016x, got 0x%016x",
                        name, expected, next_pc_out);
             end
         end
@@ -96,13 +96,13 @@ module tb_next_pc;
               1'b0, 1'b1, 1'b0, EQ, 32'd64, 32'h0000_1000,
               32'd0, 32'd0, 32'h0000_1040);
         check("JAL backward target",
-              1'b0, 1'b1, 1'b0, EQ, 32'hffff_ffc0, 32'h0000_1000,
+              1'b0, 1'b1, 1'b0, EQ, 64'hffff_ffff_ffff_ffc0, 32'h0000_1000,
               32'd0, 32'd0, 32'h0000_0fc0);
         check("JALR target clears bit zero",
               1'b0, 1'b0, 1'b1, EQ, 32'd4, 32'h0000_1000,
               32'h0000_2001, 32'd0, 32'h0000_2004);
         check("JALR supports negative immediate",
-              1'b0, 1'b0, 1'b1, EQ, 32'hffff_fffc, 32'h0000_1000,
+              1'b0, 1'b0, 1'b1, EQ, 64'hffff_ffff_ffff_fffc, 32'h0000_1000,
               32'h0000_2003, 32'd0, 32'h0000_1ffe);
 
         check("BEQ taken",
@@ -120,29 +120,29 @@ module tb_next_pc;
 
         check("BLT signed negative less than positive",
               1'b1, 1'b0, 1'b0, LT, 32'd8, 32'h0000_1000,
-              32'hffff_ffff, 32'd1, 32'h0000_1008);
+              64'hffff_ffff_ffff_ffff, 32'd1, 32'h0000_1008);
         check("BLT signed positive not less than negative",
               1'b1, 1'b0, 1'b0, LT, 32'd8, 32'h0000_1000,
-              32'd1, 32'hffff_ffff, 32'h0000_1004);
+              32'd1, 64'hffff_ffff_ffff_ffff, 32'h0000_1004);
         check("BGE signed positive greater than negative",
               1'b1, 1'b0, 1'b0, GE, 32'd8, 32'h0000_1000,
-              32'd1, 32'hffff_ffff, 32'h0000_1008);
+              32'd1, 64'hffff_ffff_ffff_ffff, 32'h0000_1008);
         check("BGE signed negative not greater or equal",
               1'b1, 1'b0, 1'b0, GE, 32'd8, 32'h0000_1000,
-              32'hffff_ffff, 32'd1, 32'h0000_1004);
+              64'hffff_ffff_ffff_ffff, 32'd1, 32'h0000_1004);
 
         check("BLTU zero less than max unsigned",
               1'b1, 1'b0, 1'b0, LTU, 32'd8, 32'h0000_1000,
-              32'd0, 32'hffff_ffff, 32'h0000_1008);
+              32'd0, 64'hffff_ffff_ffff_ffff, 32'h0000_1008);
         check("BLTU max unsigned not less than zero",
               1'b1, 1'b0, 1'b0, LTU, 32'd8, 32'h0000_1000,
-              32'hffff_ffff, 32'd0, 32'h0000_1004);
+              64'hffff_ffff_ffff_ffff, 32'd0, 32'h0000_1004);
         check("BGEU max unsigned greater or equal zero",
               1'b1, 1'b0, 1'b0, GEU, 32'd8, 32'h0000_1000,
-              32'hffff_ffff, 32'd0, 32'h0000_1008);
+              64'hffff_ffff_ffff_ffff, 32'd0, 32'h0000_1008);
         check("BGEU zero not greater or equal max unsigned",
               1'b1, 1'b0, 1'b0, GEU, 32'd8, 32'h0000_1000,
-              32'd0, 32'hffff_ffff, 32'h0000_1004);
+              32'd0, 64'hffff_ffff_ffff_ffff, 32'h0000_1004);
 
         check("invalid branch funct3 falls through",
               1'b1, 1'b0, 1'b0, 3'b010, 32'd8, 32'h0000_1000,

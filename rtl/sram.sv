@@ -2,9 +2,9 @@ import riscv::*;
 
 // Byte addressable little endian SRAM module
 module sram #(
-    parameter int DWIDTH = 32,
+    parameter int DWIDTH = 64,
     parameter int NUM_BYTES = DWIDTH / 8,
-    parameter int AWIDTH = 32,
+    parameter int AWIDTH = 64,
     parameter logic [AWIDTH-1:0] START_ADDRESS = 'h00_00_00_00,
     parameter logic [AWIDTH-1:0] END_ADDRESS = 'h00_00_ff_ff
 )(
@@ -36,10 +36,6 @@ module sram #(
 
     // Memory write
     always_ff @(posedge clk) begin
-        // TODO proper fault handling if writes are to illegal locations. Currently it's assumed
-        // that this simply won't happen. And wrapping doesn't work because technically wrapping
-        // is not correct (since the address after END_ADDRESS is simply a part of another
-        // segment of memory).
         for (int i = 0; i < NUM_BYTES; i++) begin
             if (we_i[i] == 1'b1 && (address_1_i + unsigned'(i) <= END_ADDRESS) && (address_1_i + unsigned'(i) >= START_ADDRESS)) begin
                 mem[address_1_i + unsigned'(i)] <= data_i[i * 8 +: 8];

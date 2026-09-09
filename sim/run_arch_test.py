@@ -188,7 +188,7 @@ def test_name_from_elf(elf_path: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run one ACT ELF on the local RTL core")
     parser.add_argument("--max-cycles", type=int, default=2_000_000)
-    parser.add_argument("--objcopy", default="riscv32-unknown-elf-objcopy")
+    parser.add_argument("--objcopy", default="riscv64-unknown-elf-objcopy")
     parser.add_argument(
         "--simulator",
         choices=("verilator", "iverilog"),

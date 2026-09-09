@@ -16,7 +16,7 @@ module immediate_gen (
     assign imm_i = {{(XLEN-12){sign}}, inst_i[31:20]};
     assign imm_s = {{(XLEN-12){sign}}, inst_i[31:25], inst_i[11:7]};
     assign imm_b = {{(XLEN-13){sign}}, inst_i[31], inst_i[7], inst_i[30:25], inst_i[11:8], 1'b0};
-    assign imm_u = {inst_i[31:12], 12'b0};
+    assign imm_u = {{(XLEN-31){inst_i[31]}}, inst_i[30:12], 12'b0};
     assign imm_j = {{(XLEN-21){sign}}, inst_i[31], inst_i[19:12], inst_i[20], inst_i[30:21], 1'b0};
 
     always_comb begin

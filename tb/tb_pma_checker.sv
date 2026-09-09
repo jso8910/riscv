@@ -6,6 +6,7 @@ module tb_pma_checker;
     logic [XLEN-1:0] pc;
     ctrl_t ctrl;
     logic [XLEN-1:0] data_addr;
+    logic [XLEN-1:0] mstatus;
     machine_privilege_t current_privilege;
     logic [7:0] pmp_cfg [0:63];
     logic [XLEN-1:0] pmp_addr [0:63];
@@ -28,6 +29,7 @@ module tb_pma_checker;
         .pc_i(pc),
         .ctrl_i(ctrl),
         .data_mem_addr_i(data_addr),
+        .mstatus_i(mstatus),
         .pma_instruction_fetch_exception_o(pma_fetch_fault),
         .pma_write_exception_o(pma_write_fault),
         .pma_read_exception_o(pma_read_fault),
@@ -97,7 +99,7 @@ module tb_pma_checker;
             ctrl.mem_read = read;
             ctrl.mem_write = write;
             ctrl.mem_size = size;
-            pc = IMEM_START_ADDRESS;
+            pc = MEM_START_ADDRESS;
             data_addr = address;
             #1;
             tests_run++;
@@ -112,7 +114,7 @@ module tb_pma_checker;
     task automatic check_idle;
         begin
             ctrl = '0;
-            pc = IMEM_START_ADDRESS;
+            pc = MEM_START_ADDRESS;
             data_addr = '0;
             #1;
             tests_run++;
@@ -135,7 +137,7 @@ module tb_pma_checker;
             ctrl.mem_read = read;
             ctrl.mem_write = write;
             ctrl.mem_size = size;
-            pc = IMEM_START_ADDRESS;
+            pc = MEM_START_ADDRESS;
             data_addr = address;
             #1;
             tests_run++;
@@ -195,7 +197,7 @@ module tb_pma_checker;
             ctrl.mem_write = write;
             ctrl.mem_size = size;
             current_privilege = privilege;
-            pc = IMEM_START_ADDRESS;
+            pc = MEM_START_ADDRESS;
             data_addr = address;
             #1;
             tests_run++;
@@ -241,13 +243,13 @@ module tb_pma_checker;
             ctrl.mem_write = write;
             ctrl.mem_size = size;
             current_privilege = M_MODE;
-            pc = IMEM_START_ADDRESS;
+            pc = MEM_START_ADDRESS;
             data_addr = address;
             #1;
             tests_run++;
             if (pmp_faulting_addr !== expected_addr) begin
                 tests_failed++;
-                $fatal(1, "%s: expected PMP fault address 0x%08x, got 0x%08x",
+                $fatal(1, "%s: expected PMP fault address 0x%016x, got 0x%016x",
                        name, expected_addr, pmp_faulting_addr);
             end
         end
@@ -259,127 +261,121 @@ module tb_pma_checker;
         current_privilege = M_MODE;
         clear_pmp();
 
-        check_fetch("IMEM is executable", IMEM_START_ADDRESS, 1'b0);
-        check_fetch("DMEM main memory is executable", DMEM_START_ADDRESS, 1'b0);
-        check_fetch("unallocated memory is not executable", DMEM_END_ADDRESS + 1, 1'b1);
-        check_fetch("fetch crossing the IMEM/DMEM boundary is allowed", IMEM_END_ADDRESS - 1, 1'b0);
+        mstatus = '0;
+        check_fetch("main memory is executable", MEM_START_ADDRESS, 1'b0);
+        check_fetch("unallocated memory is not executable", MEM_END_ADDRESS + 1, 1'b1);
+        check_fetch("fetch crossing the end of main memory is denied", MEM_END_ADDRESS - 1, 1'b1);
         check_idle();
-        check_no_hardware_fault("valid word load", 1'b1, 1'b0, MEM_WORD, DMEM_START_ADDRESS);
-        check_no_hardware_fault("valid word store", 1'b0, 1'b1, MEM_WORD, DMEM_START_ADDRESS);
+        check_no_hardware_fault("valid word load", 1'b1, 1'b0, MEM_WORD, MEM_START_ADDRESS);
+        check_no_hardware_fault("valid word store", 1'b0, 1'b1, MEM_WORD, MEM_START_ADDRESS);
 
-        check_data("DMEM word read is allowed", 1'b1, 1'b0, MEM_WORD,
-                   DMEM_START_ADDRESS, 1'b0, 1'b0);
-        check_data("DMEM word write is allowed", 1'b0, 1'b1, MEM_WORD,
-                   DMEM_START_ADDRESS, 1'b0, 1'b0);
-        check_data("IMEM read is allowed even though it is read-only", 1'b1, 1'b0, MEM_WORD,
-                   IMEM_START_ADDRESS, 1'b0, 1'b0);
-        check_data("IMEM write is denied", 1'b0, 1'b1, MEM_WORD,
-                   IMEM_START_ADDRESS, 1'b0, 1'b1);
+        check_data("main-memory word read is allowed", 1'b1, 1'b0, MEM_WORD,
+                   MEM_START_ADDRESS, 1'b0, 1'b0);
+        check_data("main-memory word write is allowed", 1'b0, 1'b1, MEM_WORD,
+                   MEM_START_ADDRESS, 1'b0, 1'b0);
         check_data("unallocated read is denied", 1'b1, 1'b0, MEM_BYTE,
-                   DMEM_END_ADDRESS + 1, 1'b1, 1'b0);
+                   MEM_END_ADDRESS + 1, 1'b1, 1'b0);
         check_data("unallocated write is denied", 1'b0, 1'b1, MEM_BYTE,
-                   DMEM_END_ADDRESS + 1, 1'b0, 1'b1);
-        check_data("word crossing out of DMEM is denied", 1'b1, 1'b0, MEM_WORD,
-                   DMEM_END_ADDRESS - 1, 1'b1, 1'b0);
+                   MEM_END_ADDRESS + 1, 1'b0, 1'b1);
+        check_data("word crossing out of main memory is denied", 1'b1, 1'b0, MEM_WORD,
+                   MEM_END_ADDRESS - 1, 1'b1, 1'b0);
 
         check_faulting_addr("load selects the lowest failing byte", 1'b1, 1'b0, MEM_WORD,
-                            IMEM_START_ADDRESS, DMEM_END_ADDRESS - 1,
-                            1'b0, 1'b1, 1'b0, DMEM_END_ADDRESS + 1);
+                            MEM_START_ADDRESS, MEM_END_ADDRESS - 1,
+                            1'b0, 1'b1, 1'b0, MEM_END_ADDRESS + 1);
         check_faulting_addr("store selects the lowest failing byte", 1'b0, 1'b1, MEM_WORD,
-                            IMEM_START_ADDRESS, IMEM_START_ADDRESS,
-                            1'b0, 1'b0, 1'b1, IMEM_START_ADDRESS);
+                            MEM_START_ADDRESS, MEM_END_ADDRESS + 1,
+                            1'b0, 1'b0, 1'b1, MEM_END_ADDRESS + 1);
         check_faulting_addr("fetch selects the first failing instruction byte", 1'b0, 1'b0, MEM_NONE,
-                            DMEM_END_ADDRESS - 1, '0,
-                            1'b1, 1'b0, 1'b0, DMEM_END_ADDRESS + 1);
+                            MEM_END_ADDRESS - 1, '0,
+                            1'b1, 1'b0, 1'b0, MEM_END_ADDRESS + 1);
         check_faulting_addr("fetch fault address wins over a data fault", 1'b1, 1'b0, MEM_WORD,
-                            DMEM_END_ADDRESS + 8, DMEM_END_ADDRESS - 1,
-                            1'b1, 1'b1, 1'b0, DMEM_END_ADDRESS + 8);
+                            MEM_END_ADDRESS + 8, MEM_END_ADDRESS - 1,
+                            1'b1, 1'b1, 1'b0, MEM_END_ADDRESS + 8);
 
         // PMP tests: all PMP exceptions are checked independently of PMA exceptions.
         clear_pmp();
         check_pmp_data("M mode allows an unmatched read", M_MODE, 1'b1, 1'b0, MEM_WORD,
-                       DMEM_START_ADDRESS, 1'b0, 1'b0);
-        check_pmp_fetch("M mode allows an unmatched fetch", M_MODE, IMEM_START_ADDRESS, 1'b0);
+                       MEM_START_ADDRESS, 1'b0, 1'b0);
+        check_pmp_fetch("M mode allows an unmatched fetch", M_MODE, MEM_START_ADDRESS, 1'b0);
 
         clear_pmp();
         pmp_cfg[0] = pmpcfg(1'b0, PMP_NA4, 1'b0, 1'b0, 1'b0);
-        pmp_addr[0] = (DMEM_START_ADDRESS + 32'h100) >> 2;
+        pmp_addr[0] = (MEM_START_ADDRESS + 32'h100) >> 2;
         check_pmp_data("unlocked M PMP bypasses write permission", M_MODE, 1'b0, 1'b1, MEM_BYTE,
-                       DMEM_START_ADDRESS + 32'h100, 1'b0, 1'b0);
+                       MEM_START_ADDRESS + 32'h100, 1'b0, 1'b0);
 
         clear_pmp();
         pmp_cfg[0] = pmpcfg(1'b1, PMP_NA4, 1'b0, 1'b0, 1'b1);
-        pmp_addr[0] = (DMEM_START_ADDRESS + 32'h100) >> 2;
+        pmp_addr[0] = (MEM_START_ADDRESS + 32'h100) >> 2;
         check_pmp_data("locked M PMP allows read", M_MODE, 1'b1, 1'b0, MEM_BYTE,
-                       DMEM_START_ADDRESS + 32'h100, 1'b0, 1'b0);
+                       MEM_START_ADDRESS + 32'h100, 1'b0, 1'b0);
         check_pmp_data("locked M PMP denies write", M_MODE, 1'b0, 1'b1, MEM_BYTE,
-                       DMEM_START_ADDRESS + 32'h100, 1'b0, 1'b1);
+                       MEM_START_ADDRESS + 32'h100, 1'b0, 1'b1);
 
         clear_pmp();
         pmp_cfg[0] = pmpcfg(1'b1, PMP_TOR, 1'b0, 1'b1, 1'b1);
-        pmp_addr[0] = (IMEM_END_ADDRESS + 1) >> 2;
-        check_pmp_fetch("locked M PMP denies execute without X", M_MODE, IMEM_START_ADDRESS, 1'b1);
+        pmp_addr[0] = (MEM_END_ADDRESS + 1) >> 2;
+        check_pmp_fetch("locked M PMP denies execute without X", M_MODE, MEM_START_ADDRESS, 1'b1);
 
         clear_pmp();
         check_pmp_data("U mode denies unmatched access when PMP exists", U_MODE, 1'b1, 1'b0, MEM_BYTE,
-                       DMEM_START_ADDRESS, 1'b1, 1'b0);
+                       MEM_START_ADDRESS, 1'b1, 1'b0);
         check_pmp_fetch("U mode denies unmatched fetch when all entries are OFF", U_MODE,
-                        IMEM_START_ADDRESS, 1'b1);
+                        MEM_START_ADDRESS, 1'b1);
 
         clear_pmp();
         pmp_cfg[0] = pmpcfg(1'b0, PMP_TOR, 1'b1, 1'b0, 1'b0);
-        pmp_addr[0] = (IMEM_END_ADDRESS + 1) >> 2;
-        check_pmp_fetch("execute-only PMP region permits U-mode fetch", U_MODE, IMEM_START_ADDRESS, 1'b0);
+        pmp_addr[0] = (MEM_END_ADDRESS + 1) >> 2;
+        check_pmp_fetch("execute-only PMP region permits U-mode fetch", U_MODE, MEM_START_ADDRESS, 1'b0);
         check_pmp_data("execute-only PMP region denies U-mode read", U_MODE, 1'b1, 1'b0, MEM_BYTE,
-                       IMEM_START_ADDRESS, 1'b1, 1'b0);
+                       MEM_START_ADDRESS, 1'b1, 1'b0);
 
         clear_pmp();
-        pmp_addr[0] = (DMEM_START_ADDRESS + 32'h100) >> 2;
+        pmp_addr[0] = (MEM_START_ADDRESS + 32'h100) >> 2;
         pmp_cfg[1] = pmpcfg(1'b0, PMP_TOR, 1'b0, 1'b1, 1'b1);
-        pmp_addr[1] = (DMEM_START_ADDRESS + 32'h110) >> 2;
+        pmp_addr[1] = (MEM_START_ADDRESS + 32'h110) >> 2;
         check_pmp_data("TOR uses the preceding PMP address as its lower bound", U_MODE,
-                       1'b1, 1'b0, MEM_BYTE, DMEM_START_ADDRESS + 32'h104, 1'b0, 1'b0);
+                       1'b1, 1'b0, MEM_BYTE, MEM_START_ADDRESS + 32'h104, 1'b0, 1'b0);
         check_pmp_data("TOR does not match below its preceding PMP address", U_MODE,
-                       1'b1, 1'b0, MEM_BYTE, DMEM_START_ADDRESS + 32'h0fc, 1'b1, 1'b0);
+                       1'b1, 1'b0, MEM_BYTE, MEM_START_ADDRESS + 32'h0fc, 1'b1, 1'b0);
 
         clear_pmp();
         pmp_cfg[0] = pmpcfg(1'b1, PMP_NAPOT, 1'b0, 1'b0, 1'b1);
-        pmp_addr[0] = ((DMEM_START_ADDRESS + 32'h200) >> 2) | 32'h3;
+        pmp_addr[0] = ((MEM_START_ADDRESS + 32'h200) >> 2) | 32'h3;
         check_pmp_data("NAPOT read is allowed", M_MODE, 1'b1, 1'b0, MEM_BYTE,
-                       DMEM_START_ADDRESS + 32'h210, 1'b0, 1'b0);
+                       MEM_START_ADDRESS + 32'h210, 1'b0, 1'b0);
         check_pmp_data("NAPOT write is denied", M_MODE, 1'b0, 1'b1, MEM_BYTE,
-                       DMEM_START_ADDRESS + 32'h210, 1'b0, 1'b1);
+                       MEM_START_ADDRESS + 32'h210, 1'b0, 1'b1);
 
         clear_pmp();
         pmp_cfg[0] = pmpcfg(1'b0, PMP_NA4, 1'b0, 1'b0, 1'b1);
-        pmp_addr[0] = (DMEM_START_ADDRESS + 32'h008) >> 2;
+        pmp_addr[0] = (MEM_START_ADDRESS + 32'h008) >> 2;
         pmp_cfg[1] = pmpcfg(1'b1, PMP_NAPOT, 1'b0, 1'b0, 1'b1);
-        pmp_addr[1] = (DMEM_START_ADDRESS >> 2) | 32'h3;
+        pmp_addr[1] = (MEM_START_ADDRESS >> 2) | 32'h3;
         check_pmp_data("lowest PMP entry wins and partial coverage faults", M_MODE, 1'b1, 1'b0, MEM_WORD,
-                       DMEM_START_ADDRESS + 32'h006, 1'b1, 1'b0);
+                       MEM_START_ADDRESS + 32'h006, 1'b1, 1'b0);
 
         clear_pmp();
         pmp_cfg[0] = pmpcfg(1'b1, PMP_NA4, 1'b0, 1'b0, 1'b0);
-        pmp_addr[0] = (DMEM_START_ADDRESS + 32'h100) >> 2;
+        pmp_addr[0] = (MEM_START_ADDRESS + 32'h100) >> 2;
         pmp_cfg[1] = pmpcfg(1'b1, PMP_NAPOT, 1'b0, 1'b0, 1'b1);
-        pmp_addr[1] = ((DMEM_START_ADDRESS + 32'h100) >> 2) | 32'h3;
+        pmp_addr[1] = ((MEM_START_ADDRESS + 32'h100) >> 2) | 32'h3;
         check_pmp_data("lowest matching PMP permission wins", M_MODE, 1'b1, 1'b0, MEM_BYTE,
-                       DMEM_START_ADDRESS + 32'h100, 1'b1, 1'b0);
+                       MEM_START_ADDRESS + 32'h100, 1'b1, 1'b0);
 
         clear_pmp();
         pmp_cfg[0] = pmpcfg(1'b0, PMP_TOR, 1'b1, 1'b1, 1'b1);
         pmp_addr[0] = 32'h4000_0000;
         check_pmp_data("TOR top at 2^32 covers 32-bit data address", U_MODE, 1'b1, 1'b0, MEM_WORD,
-                       DMEM_START_ADDRESS, 1'b0, 1'b0);
-        check_pmp_fetch("TOR top at 2^32 covers 32-bit fetch address", U_MODE, IMEM_START_ADDRESS, 1'b0);
+                       MEM_START_ADDRESS, 1'b0, 1'b0);
+        check_pmp_fetch("TOR top at 2^32 covers a low fetch address", U_MODE, MEM_START_ADDRESS, 1'b0);
 
         clear_pmp();
-        pmp_cfg[0] = pmpcfg(1'b1, PMP_TOR, 1'b1, 1'b1, 1'b1);
-        pmp_addr[0] = (IMEM_END_ADDRESS + 1) >> 2;
         pmp_cfg[1] = pmpcfg(1'b1, PMP_NA4, 1'b0, 1'b0, 1'b0);
-        pmp_addr[1] = (DMEM_START_ADDRESS + 32'h100) >> 2;
+        pmp_addr[1] = (MEM_START_ADDRESS + 32'h100) >> 2;
         check_pmp_faulting_addr("PMP data fault reports the original access address", 1'b0, 1'b1, MEM_BYTE,
-                                DMEM_START_ADDRESS + 32'h100, DMEM_START_ADDRESS + 32'h100);
+                                MEM_START_ADDRESS + 32'h100, MEM_START_ADDRESS + 32'h100);
 
         if (tests_failed == 0) begin
             $display("tb_pma_checker: all %0d checks passed", tests_run);

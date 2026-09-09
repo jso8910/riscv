@@ -18,17 +18,18 @@ module physical_memory_checker (
     output logic               pmp_instruction_fetch_exception_o,
     output logic [XLEN-1:0]    pmp_faulting_addr_o
 );
-    logic access_empty;
-    logic [XLEN-1:0] access_addresses [0:3];
+    logic [XLEN-1:0] access_addresses [0:7];
     /* verilator lint_off ASCRANGE */
     pma_cfg_t [0:2] pma_cfgs;
     /* verilator lint_on ASCRANGE */
 
     logic access_pmp_matched, pc_pmp_matched, all_access_bytes, all_pc_bytes,
           bypass_permissions;
-    logic [XLEN+2:0] bottom_of_range, top_of_range, access_pmp_range_btm, access_pmp_range_top,
+    logic [PHYS_ADDR_WIDTH:0] bottom_of_range, top_of_range, access_pmp_range_btm, access_pmp_range_top,
                      pc_pmp_range_btm, pc_pmp_range_top;
     logic [5:0] access_matching_pmp_idx, pc_matching_pmp_idx, n_trailing_1s;
+
+    logic [3:0] access_width;
 
     machine_privilege_t effective_privilege;
     assign effective_privilege = machine_privilege_t'(current_privilege_i == M_MODE && mstatus_i[MSTATUS_MPRV] ? 
@@ -91,32 +92,78 @@ module physical_memory_checker (
         pma_faulting_addr_o = '0;
         hardware_fault_o = '0;
 
-        access_empty = '0;
         case (ctrl_i.mem_size)
             MEM_BYTE : begin
+                access_width = 4'd1;
                 access_addresses[0] = data_mem_addr_i;
                 access_addresses[1] = data_mem_addr_i;
                 access_addresses[2] = data_mem_addr_i;
                 access_addresses[3] = data_mem_addr_i;
+                access_addresses[4] = data_mem_addr_i;
+                access_addresses[5] = data_mem_addr_i;
+                access_addresses[6] = data_mem_addr_i;
+                access_addresses[7] = data_mem_addr_i;
+                if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
+                    hardware_fault_o = '1;
+                end
             end
             MEM_HALF : begin
+                access_width = 4'd2;
                 access_addresses[0] = data_mem_addr_i;
-                access_addresses[1] = data_mem_addr_i + 1'b1;
+                access_addresses[1] = data_mem_addr_i + uintxlen_t'(1);
                 access_addresses[2] = data_mem_addr_i;
                 access_addresses[3] = data_mem_addr_i;
+                access_addresses[4] = data_mem_addr_i;
+                access_addresses[5] = data_mem_addr_i;
+                access_addresses[6] = data_mem_addr_i;
+                access_addresses[7] = data_mem_addr_i;
+                if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
+                    hardware_fault_o = '1;
+                end
             end
             MEM_WORD : begin
+                access_width = 4'd4;
                 access_addresses[0] = data_mem_addr_i;
                 access_addresses[1] = data_mem_addr_i + uintxlen_t'(1);
                 access_addresses[2] = data_mem_addr_i + uintxlen_t'(2);
                 access_addresses[3] = data_mem_addr_i + uintxlen_t'(3);
+                access_addresses[4] = data_mem_addr_i;
+                access_addresses[5] = data_mem_addr_i;
+                access_addresses[6] = data_mem_addr_i;
+                access_addresses[7] = data_mem_addr_i;
+                if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
+                    hardware_fault_o = '1;
+                end
+            end
+            MEM_DOUBLE : begin
+                access_width = 4'd8;
+                access_addresses[0] = data_mem_addr_i;
+                access_addresses[1] = data_mem_addr_i + uintxlen_t'(1);
+                access_addresses[2] = data_mem_addr_i + uintxlen_t'(2);
+                access_addresses[3] = data_mem_addr_i + uintxlen_t'(3);
+                access_addresses[4] = data_mem_addr_i + uintxlen_t'(4);
+                access_addresses[5] = data_mem_addr_i + uintxlen_t'(5);
+                access_addresses[6] = data_mem_addr_i + uintxlen_t'(6);
+                access_addresses[7] = data_mem_addr_i + uintxlen_t'(7);
+                if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
+                    hardware_fault_o = '1;
+                end
             end
             MEM_NONE : begin
+                access_width = 4'd0;
                 access_addresses[0] = data_mem_addr_i;
                 access_addresses[1] = data_mem_addr_i;
                 access_addresses[2] = data_mem_addr_i;
                 access_addresses[3] = data_mem_addr_i;
-                access_empty = '1;
+                access_addresses[4] = data_mem_addr_i;
+                access_addresses[5] = data_mem_addr_i;
+                access_addresses[6] = data_mem_addr_i;
+                access_addresses[7] = data_mem_addr_i;
+                // MEM_NONE should only be true if there isn't a memory read or memory
+                // write
+                if (ctrl_i.mem_read || ctrl_i.mem_write) begin
+                    hardware_fault_o = '1;
+                end
             end
             default: $fatal(1);
         endcase
@@ -128,30 +175,25 @@ module physical_memory_checker (
         // This is used because of the ordering of checks in trap_controller, where an instruction
         // fetch fault is raised over a write fault is raised over a read fault. The PMA checker
         // must check in that order so the correct address is put in pma_faulting_addr.
-        // access_empty (ie MEM_NONE) should only be true if there isn't a memory read or memory
-        // write
-        if (access_empty != ~(ctrl_i.mem_read || ctrl_i.mem_write)) begin
-            hardware_fault_o = '1;
-        end
+        
+        
 
         pma_write_exception_o = '0;
         pma_read_exception_o = '0;
-        if (!access_empty) begin
-            if (ctrl_i.mem_read) begin
-                // We iterate in reverse so the lowest failing byte is put in pma_faulting_addr
-                for (int i = 3; i >= 0; i--) begin
-                    if (!pma_readable(access_addresses[i])) begin
-                        pma_read_exception_o = '1;
-                        pma_faulting_addr_o = access_addresses[i];
-                    end
+        if (ctrl_i.mem_read) begin
+            // We iterate in reverse so the lowest failing byte is put in pma_faulting_addr
+            for (int i = int'(access_width) - 1; i >= 0; i--) begin
+                if (!pma_readable(access_addresses[i])) begin
+                    pma_read_exception_o = '1;
+                    pma_faulting_addr_o = access_addresses[i];
                 end
             end
-            if (ctrl_i.mem_write) begin
-                for (int i = 3; i >= 0; i--) begin
-                    if (!pma_writable(access_addresses[i])) begin
-                        pma_write_exception_o = '1;
-                        pma_faulting_addr_o = access_addresses[i];
-                    end
+        end
+        if (ctrl_i.mem_write) begin
+            for (int i = int'(access_width) - 1; i >= 0; i--) begin
+                if (!pma_writable(access_addresses[i])) begin
+                    pma_write_exception_o = '1;
+                    pma_faulting_addr_o = access_addresses[i];
                 end
             end
         end
@@ -200,16 +242,16 @@ module physical_memory_checker (
                     // The range is (pmp_addr_i[i-1] << 2)..(pmp_addr_i[i] << 2)
                     // if i==0, the bottom of the range is 0
                     if (i != 0)
-                        bottom_of_range = {1'b0, pmp_addr_i[i-1], 2'b00};
+                        bottom_of_range = {1'b0, pmp_addr_i[i-1][PMP_ADDR_WIDTH-1:0], 2'b00};
                     else
                         bottom_of_range = '0;
-                    top_of_range = {1'b0, pmp_addr_i[i], 2'b00};
+                    top_of_range = {1'b0, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0], 2'b00};
                     
                 end
                 PMP_NA4 : begin
                     // range is (pmp_addr_i[i] << 2)..((pmp_addr_i[i] << 2) + 4)
-                    bottom_of_range = {1'b0, pmp_addr_i[i], 2'b00};
-                    top_of_range = {1'b0, pmp_addr_i[i], 2'b00} + (XLEN + 3)'(3'd4);
+                    bottom_of_range = {1'b0, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0], 2'b00};
+                    top_of_range = {1'b0, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0], 2'b00} + (PHYS_ADDR_WIDTH + 1)'(3'd4);
                 end
                 PMP_NAPOT : begin
                     n_trailing_1s = 0;
@@ -218,7 +260,7 @@ module physical_memory_checker (
                     // This clears n_trailing_1s bits, then, on net, shifts the address by 2
                     // size = 1 << (3 + n_trailing_1s)
                     // so the range is base_addr..base_addr+size (uninclusive)
-                    for (int j = 0; j < 32; j++) begin
+                    for (int j = 0; j < PMP_ADDR_WIDTH - 1; j++) begin
                         // The moment this if statement isn't taken, n_trailing_1s == j will never
                         // be true again, and thus it will never be incremented again.
                         if (pmp_addr_i[i][j] == 1'b1) begin
@@ -227,13 +269,12 @@ module physical_memory_checker (
                             end
                         end
                     end
-                    // Widen before shifting: a NAPOT region can end above the
-                    // 32-bit address space, even though individual accesses are
-                    // XLEN wide.
-                    bottom_of_range = ({3'b000, pmp_addr_i[i]} >> (n_trailing_1s + 1))
+                    // Widen before shifting: a NAPOT region can end at the
+                    // exclusive end of the physical address space.
+                    bottom_of_range = ({3'b000, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0]} >> (n_trailing_1s + 1))
                                       << (n_trailing_1s + 3);
                     top_of_range = bottom_of_range
-                                 + ((XLEN + 3)'(1'b1) << (3 + n_trailing_1s));
+                                 + ((PHYS_ADDR_WIDTH + 1)'(1'b1) << (3 + n_trailing_1s));
                 end
                 // Here, I skip the $fatal(1) because I specifically know that there will never be
                 // any more PMA modes.
@@ -242,18 +283,23 @@ module physical_memory_checker (
                 // hasn't yet completed). So, this default branch is accessed briefly.
                 default: ;
             endcase
-            for (int j = 0; j < 4; j++) begin
-                if (bottom_of_range <= {3'b000, access_addresses[j]} && {3'b000, access_addresses[j]} < top_of_range) begin
-                    access_matching_pmp_idx = i[5:0];
-                    access_pmp_matched = 1;
-                    access_pmp_range_btm = bottom_of_range;
-                    access_pmp_range_top = top_of_range;
+            for (int j = 0; j < 8; j++) begin
+                if (j < int'(access_width)) begin
+                    if (bottom_of_range <= {1'b0, access_addresses[j][PHYS_ADDR_WIDTH-1:0]} && {1'b0, access_addresses[j][PHYS_ADDR_WIDTH-1:0]} < top_of_range) begin
+                        access_matching_pmp_idx = i[5:0];
+                        access_pmp_matched = 1;
+                        access_pmp_range_btm = bottom_of_range;
+                        access_pmp_range_top = top_of_range;
+                    end
                 end
-                if (bottom_of_range <= ({3'b000, pc_i} + (XLEN + 3)'(unsigned'(j))) && ({3'b000, pc_i} + (XLEN + 3)'(unsigned'(j))) < top_of_range) begin
-                    pc_matching_pmp_idx = i[5:0];
-                    pc_pmp_matched = 1;
-                    pc_pmp_range_btm = bottom_of_range;
-                    pc_pmp_range_top = top_of_range;
+                // PC is only a 4 byte access
+                if (j < 4) begin
+                    if (bottom_of_range <= ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(j))) && ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(j))) < top_of_range) begin
+                        pc_matching_pmp_idx = i[5:0];
+                        pc_pmp_matched = 1;
+                        pc_pmp_range_btm = bottom_of_range;
+                        pc_pmp_range_top = top_of_range;
+                    end
                 end
             end
         end
@@ -273,10 +319,10 @@ module physical_memory_checker (
         //  2. Not all bytes are in the selected PMP region (because the prioritization selects the
         //     lowest PMP which matches *any* of the bytes of the access)
         //  3. The R/W bit corresponding with this access's operation is not set.
-        for (int i = 0; i < 4; i++) begin
+        for (int i = 0; i < int'(access_width); i++) begin
             // this works even if no pmp matched because the default (0..0) has no address matches
             // even in any edge case
-            if (!(access_pmp_range_btm <= {3'b000, access_addresses[i]} && {3'b000, access_addresses[i]} < access_pmp_range_top)) begin
+            if (!(access_pmp_range_btm <= {1'b0, access_addresses[i][PHYS_ADDR_WIDTH-1:0]} && {1'b0, access_addresses[i][PHYS_ADDR_WIDTH-1:0]} < access_pmp_range_top)) begin
                 all_access_bytes = 0;
             end
         end
@@ -291,14 +337,14 @@ module physical_memory_checker (
                 pmp_write_exception_o = '1;
                 pmp_faulting_addr_o = data_mem_addr_i;
             end
-        end
+        end 
 
         // Instruction fetches always use the current privilege rather than the effective (MPRV) privilege.
         bypass_permissions = current_privilege_i == M_MODE && (!pc_pmp_matched || !pmp_cfg_i[pc_matching_pmp_idx][PMPCFG_L_IDX]);
         for (int i = 0; i < 4; i++) begin
             // this works even if no pmp matched because the default (0..0) has no address matches
             // even in any edge case
-            if (!(pc_pmp_range_btm <= ({3'b000, pc_i} + (XLEN + 3)'(unsigned'(i))) && ({3'b000, pc_i} + (XLEN + 3)'(unsigned'(i))) < pc_pmp_range_top)) begin
+            if (!(pc_pmp_range_btm <= ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(i))) && ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(i))) < pc_pmp_range_top)) begin
                 all_pc_bytes = 0;
             end
         end

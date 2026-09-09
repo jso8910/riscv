@@ -100,24 +100,22 @@ module tb_csrfile;
         #1;
         check("reset enters M-mode", privilege == M_MODE);
         read_csr("mstatus reset has MPP=M", MSTATUS, MSTATUS_VAL);
-        read_csr("mip reset has MTIP pending", MIP, 32'h0000_0080);
+        read_csr("mip reset has MTIP pending", MIP, 64'h0000_0000_0000_0080);
 
         rst_n = 1'b1;
         write_csr(MIE, '1);
-        read_csr("mie implements standard M-mode enable bits", MIE, 32'h0000_0888);
+        read_csr("mie implements standard M-mode enable bits", MIE, 64'h0000_0000_0000_0888);
         write_csr(MIP, '0);
-        read_csr("mip ignores software writes", MIP, 32'h0000_0080);
+        read_csr("mip ignores software writes", MIP, 64'h0000_0000_0000_0080);
 
-        write_csr(MEPC, 32'h0000_1003);
-        read_csr("mepc clears its two low bits", MEPC, 32'h0000_1000);
+        write_csr(MEPC, 64'h0123_4567_0000_1003);
+        read_csr("mepc clears its two low bits", MEPC, 64'h0123_4567_0000_1000);
 
-        write_csr(MTVEC, 32'h0000_2002);
-        read_csr("mtvec rejects reserved modes", MTVEC, 32'h0000_2000);
+        write_csr(MTVEC, 64'h0123_4567_0000_2002);
+        read_csr("mtvec rejects reserved modes", MTVEC, 64'h0123_4567_0000_2000);
 
-        write_csr(MCYCLE, 32'h89ab_cdef);
-        write_csr(MCYCLEH, 32'h0123_4567);
-        read_csr("mcycle low half is writable", MCYCLE, 32'h89ab_cdef);
-        read_csr("mcycle high half is writable", MCYCLEH, 32'h0123_4567);
+        write_csr(MCYCLE, 64'h0123_4567_89ab_cdef);
+        read_csr("mcycle is writable", MCYCLE, 64'h0123_4567_89ab_cdef);
 
         cycle_tick = 1'b1;
         retire_count = 1'b1;
@@ -125,29 +123,32 @@ module tb_csrfile;
         #1;
         cycle_tick = 1'b0;
         retire_count = 1'b0;
-        read_csr("mcycle increments on cycle_tick", MCYCLE, 32'h89ab_cdf0);
-        read_csr("minstret increments on retire", MINSTRET, 32'h0000_0001);
+        read_csr("mcycle increments on cycle_tick", MCYCLE, 64'h0123_4567_89ab_cdf0);
+        read_csr("minstret increments on retire", MINSTRET, 64'h0000_0000_0000_0001);
 
-        write_csr(MCOUNTINHIBIT, 32'hffff_ffff);
-        read_csr("mcountinhibit exposes only CY and IR", MCOUNTINHIBIT, 32'h0000_0005);
+        write_csr(MCOUNTINHIBIT, '1);
+        read_csr("mcountinhibit exposes only CY and IR", MCOUNTINHIBIT, 64'h0000_0000_0000_0005);
         cycle_tick = 1'b1;
         retire_count = 1'b1;
         @(posedge clk);
         #1;
         cycle_tick = 1'b0;
         retire_count = 1'b0;
-        read_csr("CY inhibit stops mcycle", MCYCLE, 32'h89ab_cdf0);
-        read_csr("IR inhibit stops minstret", MINSTRET, 32'h0000_0001);
+        read_csr("CY inhibit stops mcycle", MCYCLE, 64'h0123_4567_89ab_cdf0);
+        read_csr("IR inhibit stops minstret", MINSTRET, 64'h0000_0000_0000_0001);
 
-        write_csr(PMPADDR0, 32'h0000_0100);
-        write_csr(PMPCFG0, 32'h0000_0088);
-        write_csr(PMPADDR0, 32'h0000_0200);
-        read_csr("locked PMP entry blocks pmpaddr writes", PMPADDR0, 32'h0000_0100);
+        write_csr(PMPADDR0, 64'h0000_0000_0000_0100);
+        write_csr(PMPCFG0, 64'h0000_0000_0000_0088);
+        write_csr(PMPADDR0, 64'h0000_0000_0000_0200);
+        read_csr("locked PMP entry blocks pmpaddr writes", PMPADDR0, 64'h0000_0000_0000_0100);
 
-        write_csr(PMPADDR0 + 12'd2, 32'h0000_0200);
-        write_csr(PMPCFG0, 32'h8800_0088);
-        write_csr(PMPADDR0 + 12'd2, 32'h0000_0300);
-        read_csr("locked TOR entry locks the preceding pmpaddr", PMPADDR0 + 12'd2, 32'h0000_0200);
+        write_csr(PMPADDR0 + 12'd2, 64'h0000_0000_0000_0200);
+        write_csr(PMPCFG0, 64'h0000_0000_8800_0088);
+        write_csr(PMPADDR0 + 12'd2, 64'h0000_0000_0000_0300);
+        read_csr("locked TOR entry locks the preceding pmpaddr", PMPADDR0 + 12'd2, 64'h0000_0000_0000_0200);
+
+        write_csr(PMPADDR0 + 12'd4, '1);
+        read_csr("pmpaddr exposes only implemented physical address bits", PMPADDR0 + 12'd4, 64'h003f_ffff_ffff_ffff);
 
         trap = '0;
         trap.is_trap = 1'b1;

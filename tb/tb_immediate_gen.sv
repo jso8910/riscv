@@ -67,7 +67,7 @@ module tb_immediate_gen;
             tests_run++;
             if (imm !== expected) begin
                 tests_failed++;
-                $fatal(1, "%s: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s: expected 0x%016x, got 0x%016x",
                        name, expected, imm);
             end
         end
@@ -78,30 +78,30 @@ module tb_immediate_gen;
         tests_failed = 0;
 
         check("R format has no immediate",
-              32'hffff_ffff, IMM_R, 32'h0000_0000);
+              32'hffff_ffff, IMM_R, '0);
 
         check("I format positive immediate",
-              enc_i(12'h123), IMM_I, 32'h0000_0123);
+              enc_i(12'h123), IMM_I, 64'h0000_0000_0000_0123);
         check("I format sign extends negative immediate",
-              enc_i(12'hf80), IMM_I, 32'hffff_ff80);
+              enc_i(12'hf80), IMM_I, 64'hffff_ffff_ffff_ff80);
 
         check("S format joins split immediate",
-              enc_s(12'h2a5), IMM_S, 32'h0000_02a5);
+              enc_s(12'h2a5), IMM_S, 64'h0000_0000_0000_02a5);
         check("S format sign extends negative immediate",
-              enc_s(12'hfe4), IMM_S, 32'hffff_ffe4);
+              enc_s(12'hfe4), IMM_S, 64'hffff_ffff_ffff_ffe4);
 
         check("B format joins split offset and clears bit zero",
-              enc_b(13'h018), IMM_B, 32'h0000_0018);
+              enc_b(13'h018), IMM_B, 64'h0000_0000_0000_0018);
         check("B format sign extends negative offset",
-              enc_b(13'h1ff0), IMM_B, 32'hffff_fff0);
+              enc_b(13'h1ff0), IMM_B, 64'hffff_ffff_ffff_fff0);
 
         check("U format shifts upper immediate into place",
-              enc_u(20'habcde), IMM_U, 32'habcde_000);
+              enc_u(20'habcde), IMM_U, 64'hffff_ffff_abcde_000);
 
         check("J format joins scattered offset and clears bit zero",
-              enc_j(21'h00abc), IMM_J, 32'h0000_0abc);
+              enc_j(21'h00abc), IMM_J, 64'h0000_0000_0000_0abc);
         check("J format sign extends negative offset",
-              enc_j(21'h1ff800), IMM_J, 32'hffff_f800);
+              enc_j(21'h1ff800), IMM_J, 64'hffff_ffff_ffff_f800);
 
         if (tests_failed == 0) begin
             $display("tb_immediate_gen: all %0d tests passed", tests_run);

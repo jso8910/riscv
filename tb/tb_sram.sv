@@ -3,8 +3,8 @@
 import riscv::*;
 
 module tb_sram;
-    localparam int TEST_DWIDTH = 32;
-    localparam int TEST_AWIDTH = 32;
+    localparam int TEST_DWIDTH = WWIDTH;
+    localparam int TEST_AWIDTH = XLEN;
     localparam logic [TEST_AWIDTH-1:0] TEST_START = 32'h0000_1000;
     localparam logic [TEST_AWIDTH-1:0] TEST_END   = 32'h0000_101f;
 
@@ -64,7 +64,7 @@ module tb_sram;
             tests_run++;
             if (data_1_out !== expected) begin
                 tests_failed++;
-                $fatal(1, "%s: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s: expected 0x%016x, got 0x%016x",
                        name, expected, data_1_out);
             end
         end
@@ -82,7 +82,7 @@ module tb_sram;
             tests_run++;
             if (data_2_out !== expected) begin
                 tests_failed++;
-                $fatal(1, "%s: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s: expected 0x%016x, got 0x%016x",
                        name, expected, data_2_out);
             end
         end
@@ -104,7 +104,7 @@ module tb_sram;
             tests_run++;
             if (data_1_out !== first_expected || data_2_out !== second_expected) begin
                 tests_failed++;
-                $fatal(1, "%s: expected 0x%08x/0x%08x, got 0x%08x/0x%08x",
+                $fatal(1, "%s: expected 0x%016x/0x%016x, got 0x%016x/0x%016x",
                        name, first_expected, second_expected, data_1_out, data_2_out);
             end
         end
@@ -119,7 +119,7 @@ module tb_sram;
             tests_run++;
             if (dut.mem[addr] !== expected) begin
                 tests_failed++;
-                $fatal(1, "%s: expected byte 0x%02x at 0x%08x, got 0x%02x",
+                $fatal(1, "%s: expected byte 0x%02x at 0x%016x, got 0x%02x",
                        name, expected, addr, dut.mem[addr]);
             end
         end
@@ -147,11 +147,11 @@ module tb_sram;
         clear_test_memory();
 
         check_read("cleared first word",
-                   TEST_START, 32'h0000_0000);
+                   TEST_START, 64'h0000_0000_0000_0000);
         check_read("cleared last word",
-                   TEST_END - 3, 32'h0000_0000);
+                   TEST_END - 7, 64'h0000_0000_0000_0000);
 
-        write_mem(TEST_START, 32'h1234_5678, 4'b1111);
+        write_mem(TEST_START, 64'h0000_0000_1234_5678, 8'b0000_1111);
         check_byte("little endian byte 0 is least significant byte",
                    TEST_START + 0, 8'h78);
         check_byte("little endian byte 1",
@@ -161,15 +161,15 @@ module tb_sram;
         check_byte("little endian byte 3 is most significant byte",
                    TEST_START + 3, 8'h12);
         check_read("full word write/read",
-                   TEST_START, 32'h1234_5678);
+                   TEST_START, 64'h0000_0000_1234_5678);
         check_second_read("second port reads the same shared memory",
-                          TEST_START, 32'h1234_5678);
+                          TEST_START, 64'h0000_0000_1234_5678);
 
-        write_mem(TEST_START, 32'haaaa_aaaa, 4'b0000);
+        write_mem(TEST_START, 64'haaaa_aaaa_aaaa_aaaa, 8'b0000_0000);
         check_read("write enable zero leaves word unchanged",
-                   TEST_START, 32'h1234_5678);
+                   TEST_START, 64'h0000_0000_1234_5678);
 
-        write_mem(TEST_START, 32'hdead_beef, 4'b0101);
+        write_mem(TEST_START, 64'hdead_beef_dead_beef, 8'b0000_0101);
         check_byte("little endian byte enable lane 0 updates address plus 0",
                    TEST_START + 0, 8'hef);
         check_byte("little endian byte enable lane 1 remains address plus 1",
@@ -179,34 +179,34 @@ module tb_sram;
         check_byte("little endian byte enable lane 3 remains address plus 3",
                    TEST_START + 3, 8'h12);
         check_read("byte write enables update selected lanes",
-                   TEST_START, 32'h12ad_56ef);
+                   TEST_START, 64'h0000_0000_12ad_56ef);
 
-        write_mem(TEST_START + 4, 32'hcafebabe, 4'b1111);
+        write_mem(TEST_START + 4, 64'h0000_0000_cafe_babe, 8'b0000_1111);
         check_read("second full word write/read",
-                   TEST_START + 4, 32'hcafe_babe);
+                   TEST_START + 4, 64'h0000_0000_cafe_babe);
         check_second_read("second port reads independently of first port",
-                          TEST_START + 4, 32'hcafe_babe);
+                          TEST_START + 4, 64'h0000_0000_cafe_babe);
         check_simultaneous_reads("both ports can read distinct words simultaneously",
-                                 TEST_START, 32'h12ad_56ef,
-                                 TEST_START + 4, 32'hcafe_babe);
+                                 TEST_START, 64'hcafe_babe_12ad_56ef,
+                                 TEST_START + 4, 64'h0000_0000_cafe_babe);
         check_read("unaligned read spans adjacent bytes",
-                   TEST_START + 2, 32'hbabe_12ad);
+                   TEST_START + 2, 64'h0000_cafe_babe_12ad);
 
-        write_mem(TEST_START + 1, 32'h3344_5566, 4'b0110);
+        write_mem(TEST_START + 1, 64'h0000_0000_3344_5566, 8'b0000_0110);
         check_read("unaligned byte enables map to address plus lane",
-                   TEST_START, 32'h4455_56ef);
+                   TEST_START, 64'hcafe_babe_4455_56ef);
 
-        write_mem(TEST_END - 1, 32'hddcc_bbaa, 4'b1111);
+        write_mem(TEST_END - 1, 64'h0000_0000_ddcc_bbaa, 8'b0000_1111);
         check_read("upper boundary partial write keeps in-range bytes",
-                   TEST_END - 3, 32'hbbaa_0000);
+                   TEST_END - 3, 64'h0000_0000_bbaa_0000);
         check_read("upper out-of-range read bytes return zero",
-                   TEST_END - 1, 32'h0000_bbaa);
+                   TEST_END - 1, 64'h0000_0000_0000_bbaa);
 
-        write_mem(TEST_START - 2, 32'h8877_6655, 4'b1111);
+        write_mem(TEST_START - 2, 64'h0000_0000_8877_6655, 8'b0000_1111);
         check_read("lower boundary partial write keeps in-range bytes",
-                   TEST_START, 32'h4455_8877);
+                   TEST_START, 64'hcafe_babe_4455_8877);
         check_read("lower out-of-range read bytes return zero",
-                   TEST_START - 2, 32'h8877_0000);
+                   TEST_START - 2, 64'hbabe_4455_8877_0000);
 
         if (tests_failed == 0) begin
             $display("tb_sram: all %0d tests passed", tests_run);

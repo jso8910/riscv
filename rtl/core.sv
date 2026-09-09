@@ -201,9 +201,11 @@ module riscv_system (
 );
     // Wire instantiations (_i and _o suffixes from perspective of riscv_core)
     logic [IALIGN-1:0] inst_i;
-    logic [WWIDTH-1:0] data_mem_data_i, data_mem_data_o;
+    logic [WWIDTH-1:0] data_mem_data_i, data_mem_data_o, data_mem_2;
     logic [XLEN-1:0] pc_o, data_mem_addr_o;
     logic [WWIDTH/8-1:0] data_mem_we_o;
+
+    assign inst_i = data_mem_2[31:0];
 
     // CPU core
     riscv_core u_riscv_core (
@@ -221,16 +223,16 @@ module riscv_system (
     sram #(
         .DWIDTH           (WWIDTH),
         .NUM_BYTES        (WWIDTH/8),
-        .AWIDTH           (XLEN),
-        .START_ADDRESS    (MEM_START_ADDRESS),
-        .END_ADDRESS      (MEM_END_ADDRESS)
+        .AWIDTH           (PHYS_ADDR_WIDTH),
+        .START_ADDRESS    (MEM_START_ADDRESS[PHYS_ADDR_WIDTH-1:0]),
+        .END_ADDRESS      (MEM_END_ADDRESS[PHYS_ADDR_WIDTH-1:0])
     ) data_sram (
         .clk              (clk),
-        .address_1_i      (data_mem_addr_o),
-        .address_2_i      (pc_o),
+        .address_1_i      (data_mem_addr_o[PHYS_ADDR_WIDTH-1:0]),
+        .address_2_i      (pc_o[PHYS_ADDR_WIDTH-1:0]),
         .data_i           (data_mem_data_o),
         .we_i             (data_mem_we_o),
         .data_1_o         (data_mem_data_i),
-        .data_2_o         (inst_i)
+        .data_2_o         (data_mem_2)
     );
 endmodule

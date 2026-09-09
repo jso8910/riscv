@@ -87,16 +87,43 @@ module tb_control_unit;
               && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write
               && !ctrl.csr_read && !ctrl.csr_write);
 
-        drive(32'h0000_3083); // invalid LOAD funct3, with rd=x1
+        drive(32'h0000_7083); // invalid LOAD funct3, with rd=x1
         check("invalid load has no memory or register side effect",
               ctrl.illegal && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write);
 
-        drive(32'h0000_3023); // invalid STORE funct3
+        drive(32'h0000_4023); // invalid STORE funct3
         check("invalid store has no memory side effect",
               ctrl.illegal && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write);
 
         drive(32'h4000_1093); // invalid SLLI funct7, with rd=x1
         check("invalid ALU instruction has no register side effect",
+              ctrl.illegal && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write);
+
+        drive(32'h02f1_1093); // slli x1, x2, 47
+        check("RV64 SLLI accepts a six-bit shift amount",
+              !ctrl.illegal && ctrl.reg_write && ctrl.wb_sel == WB_ALU
+              && ctrl.alu_sel_imm && !ctrl.alu_word_op && ctrl.alu_op == ALU_SLL);
+
+        drive(32'h02f1_5093); // srli x1, x2, 47
+        check("RV64 SRLI accepts a six-bit shift amount",
+              !ctrl.illegal && ctrl.reg_write && ctrl.wb_sel == WB_ALU
+              && ctrl.alu_sel_imm && !ctrl.alu_word_op && ctrl.alu_op == ALU_SRL);
+
+        drive(32'h42f1_5093); // srai x1, x2, 47
+        check("RV64 SRAI accepts a six-bit shift amount",
+              !ctrl.illegal && ctrl.reg_write && ctrl.wb_sel == WB_ALU
+              && ctrl.alu_sel_imm && !ctrl.alu_word_op && ctrl.alu_op == ALU_SRA);
+
+        drive(32'h0201_10b3); // invalid SLL funct7, with rd=x1
+        check("invalid register SLL funct7 has no register side effect",
+              ctrl.illegal && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write);
+
+        drive(32'h0201_50b3); // invalid SRL funct7, with rd=x1
+        check("invalid register SRL funct7 has no register side effect",
+              ctrl.illegal && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write);
+
+        drive(32'h4201_50b3); // invalid SRA funct7, with rd=x1
+        check("invalid register SRA funct7 has no register side effect",
               ctrl.illegal && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write);
 
         if (tests_failed == 0) begin

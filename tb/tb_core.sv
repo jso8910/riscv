@@ -93,21 +93,21 @@ module tb_core;
             SC_INVALID_LOAD: begin
                 case (address)
                     RESET_PC:     instruction_at = i_inst(12'd5, X0, ADD_SUB, 5'd1, OP_IMM);
-                    RESET_PC + 4: instruction_at = i_inst('0, X0, 3'b011, 5'd1, LOAD);
+                    RESET_PC + 4: instruction_at = i_inst('0, X0, 3'b111, 5'd1, LOAD);
                     default: ;
                 endcase
             end
             SC_INVALID_ST: begin
                 case (address)
                     RESET_PC:     instruction_at = i_inst(12'h055, X0, ADD_SUB, 5'd2, OP_IMM);
-                    RESET_PC + 4: instruction_at = s_inst('0, 5'd2, X0, 3'b011);
+                    RESET_PC + 4: instruction_at = s_inst('0, 5'd2, X0, 3'b100);
                     default: ;
                 endcase
             end
             SC_INVALID_ALU: begin
                 case (address)
                     RESET_PC:     instruction_at = i_inst(12'd5, X0, ADD_SUB, 5'd1, OP_IMM);
-                    // SLLI with funct7=0100000 is reserved in RV32I.
+                    // SLLI with imm[11:6]=010000 is reserved in RV64I.
                     RESET_PC + 4: instruction_at = i_inst(12'b0100000_00000, X0, SLL, 5'd1, OP_IMM);
                     default: ;
                 endcase
@@ -187,7 +187,7 @@ module tb_core;
         step();
         check("WFI advances the PC as a NOP", pc == RESET_PC + 4);
         check("WFI does not trap", dut.u_csrfile.mcause == '0);
-        check("WFI retires", dut.u_csrfile.minstret_full == 64'd1);
+        check("WFI retires", dut.u_csrfile.minstret == 64'd1);
 
         reset_core(SC_INVALID_JALR);
         step();

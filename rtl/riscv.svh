@@ -1,8 +1,9 @@
 package riscv;
 
-    localparam int WWIDTH     = 32;
+    localparam int WWIDTH     = 64;
     localparam int IALIGN     = 32;
-    localparam int XLEN       = 32;
+    localparam int XLEN       = 64;
+    localparam int PHYS_ADDR_WIDTH = 56;
     localparam int REG_ADDR_W = 5;
     localparam int NUM_REGS   = 32;
 
@@ -39,6 +40,7 @@ package riscv;
     // Physical memory protection
     // ==========================
     localparam int PMP_ENTRY_COUNT = 64;
+    localparam int PMP_ADDR_WIDTH = PHYS_ADDR_WIDTH - 2;
 
     localparam int PMPCFG_L_IDX = 7;
     localparam int PMPCFG_A_MSB = 4;
@@ -98,8 +100,6 @@ package riscv;
     localparam logic [11:0] MIE            = 'h304;
     localparam logic [11:0] MTVEC          = 'h305;
     // localparam logic [11:0] MCOUNTEREN     = 'h306;  TODO
-    localparam logic [11:0] MSTATUSH       = 'h310;
-    // localparam logic [11:0] MEDELEGH       = 'h312;  TODO
 
     // ### Machine trap handling
     localparam logic [11:0] MSCRATCH       = 'h340;
@@ -113,9 +113,7 @@ package riscv;
 
     // ### Machine configuration
     localparam logic [11:0] MENVCFG        = 'h30A;
-    localparam logic [11:0] MENVCFGH       = 'h31A;
     localparam logic [11:0] MSECCFG        = 'h747;
-    localparam logic [11:0] MSECCFGH       = 'h757;
 
     // ### Physical memory protection - defined with just first and last registers of each space
     localparam logic [11:0] PMPCFG0        = 'h3A0;
@@ -129,18 +127,11 @@ package riscv;
     // In this implementation, mhpmcounter3-31 are going to be read-only 0, as well as mhpmevent3-31
     localparam logic [11:0] MHPMCOUNTER3   = 'hB03;
     localparam logic [11:0] MHPMCOUNTER31  = 'hB1F;
-    localparam logic [11:0] MCYCLEH        = 'hB80;
-    localparam logic [11:0] MINSTRETH      = 'hB82;
-    // Same with the upper halves
-    localparam logic [11:0] MHPMCOUNTER3H  = 'hB83;
-    localparam logic [11:0] MHPMCOUNTER31H = 'hB9F;
 
     // ### User counter/timers
     // Read-only views of the machine cycle and instruction-retired counters.
     localparam logic [11:0] CYCLE          = 'hC00;
     localparam logic [11:0] INSTRET        = 'hC02;
-    localparam logic [11:0] CYCLEH         = 'hC80;
-    localparam logic [11:0] INSTRETH       = 'hC82;
 
     // ### Machine counter setup
     localparam logic [11:0] MCOUNTINHIBIT  = 'h320;
@@ -148,21 +139,17 @@ package riscv;
     localparam logic [11:0] MINSTRETCFG    = 'h322;
     localparam logic [11:0] MHPMEVENT3     = 'h323;
     localparam logic [11:0] MHPMEVENT31    = 'h33F;
-    localparam logic [11:0] MCYCLECFGH     = 'h721;
-    localparam logic [11:0] MINSTRETCFGH   = 'h722;
-    localparam logic [11:0] MHPMEVENT3H    = 'h723;
-    localparam logic [11:0] MHPMEVENT31H   = 'h73F;
 
     // ==================
     // CSR default values
     // ==================
     // For any CSR that has a non-zero default value, its default value is (and is explained) here.
-    // MISA: 31:30 => XLEN = 32
-    //       29:26 => static value (all 0s)
-    //       25:0  => extensions (bit 8 is set, RV32 base ISA)
-    localparam logic [XLEN-1:0] MISA_VAL     = 'b01_0000_00000000000000000100000000;
+    // MISA: 63:62 => XLEN = 64
+    //       61:26 => static value (all 0s)
+    //       25:0  => extensions (bit 8 is set, base ISA I)
+    localparam logic [XLEN-1:0] MISA_VAL     = (XLEN'(2) << (XLEN - 2)) | (XLEN'(1) << 8);
 
-    // mstatus/mstatush: all 0s, but MPP is reset to equal M (11) so an MRET before the first TRAP
+    // mstatus: all 0s, but MPP is reset to equal M (11) so an MRET before the first TRAP
     // doesn't drop the mode to user.
     localparam logic [XLEN-1:0] MSTATUS_VAL  = 'h0000_1800;
     localparam logic [XLEN-1:0] MSTATUSH_VAL = 'h0;
@@ -198,17 +185,19 @@ package riscv;
     // =======
     // Opcodes
     // =======
-    localparam logic [6:0] LUI      = 7'b0110111;
-    localparam logic [6:0] AUIPC    = 7'b0010111;
-    localparam logic [6:0] JAL      = 7'b1101111;
-    localparam logic [6:0] JALR     = 7'b1100111;
-    localparam logic [6:0] BRANCH   = 7'b1100011;
-    localparam logic [6:0] LOAD     = 7'b0000011;
-    localparam logic [6:0] STORE    = 7'b0100011;
-    localparam logic [6:0] OP_IMM   = 7'b0010011;
-    localparam logic [6:0] OP       = 7'b0110011;
-    localparam logic [6:0] MISC_MEM = 7'b0001111;
-    localparam logic [6:0] SYSTEM   = 7'b1110011;
+    localparam logic [6:0] LUI         = 7'b0110111;
+    localparam logic [6:0] AUIPC       = 7'b0010111;
+    localparam logic [6:0] JAL         = 7'b1101111;
+    localparam logic [6:0] JALR        = 7'b1100111;
+    localparam logic [6:0] BRANCH      = 7'b1100011;
+    localparam logic [6:0] LOAD        = 7'b0000011;
+    localparam logic [6:0] STORE       = 7'b0100011;
+    localparam logic [6:0] OP_IMM_WORD = 7'b0011011;
+    localparam logic [6:0] OP_WORD     = 7'b0111011;
+    localparam logic [6:0] OP_IMM      = 7'b0010011;
+    localparam logic [6:0] OP          = 7'b0110011;
+    localparam logic [6:0] MISC_MEM    = 7'b0001111;
+    localparam logic [6:0] SYSTEM      = 7'b1110011;
 
     // ======================
     // OP[-IMM] funct3 values
@@ -238,8 +227,10 @@ package riscv;
     localparam logic [2:0] LB  = 3'b000;
     localparam logic [2:0] LH  = 3'b001;
     localparam logic [2:0] LW  = 3'b010;
+    localparam logic [2:0] LD  = 3'b011;
     localparam logic [2:0] LBU = 3'b100;
     localparam logic [2:0] LHU = 3'b101;
+    localparam logic [2:0] LWU = 3'b110;
 
     // ===================
     // STORE funct3 values
@@ -247,6 +238,7 @@ package riscv;
     localparam logic [2:0] SB = 3'b000;
     localparam logic [2:0] SH = 3'b001;
     localparam logic [2:0] SW = 3'b010;
+    localparam logic [2:0] SD = 3'b011;
 
     // =============
     // funct7 values
@@ -323,11 +315,12 @@ package riscv;
         WB_CSR                  // CSR value
     } wb_sel_t;
 
-    typedef enum logic [1:0] {
+    typedef enum logic [2:0] {
         MEM_NONE,
         MEM_BYTE,
         MEM_HALF,
-        MEM_WORD
+        MEM_WORD,
+        MEM_DOUBLE
     } mem_size_t;
 
     typedef enum logic {
@@ -372,6 +365,7 @@ package riscv;
 
         alu_op_t               alu_op;
         logic                  alu_sel_imm;
+        logic                  alu_word_op;
 
         logic                  branch;
         branch_cond_t          branch_cond;

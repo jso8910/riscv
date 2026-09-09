@@ -1,7 +1,7 @@
 {
   "$schema": "/opt/riscv/share/sail-riscv/sail_riscv_config_schema.json",
   "base": {
-    "xlen": 32,
+    "xlen": 64,
     "E": false,
     "writable_misa": false,
     "writable_fiom": true,
@@ -45,7 +45,7 @@
     "mideleg": {
       "delegatable_bits": {
         "len": "xlen",
-        "value": "0x0000_0000"
+        "value": "0x0000_0000_0000_0000"
       }
     },
     "xtval_nonzero": {

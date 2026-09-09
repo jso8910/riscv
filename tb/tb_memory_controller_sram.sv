@@ -3,8 +3,8 @@
 import riscv::*;
 
 module tb_memory_controller_sram;
-    localparam int TEST_DWIDTH = 32;
-    localparam int TEST_AWIDTH = 32;
+    localparam int TEST_DWIDTH = WWIDTH;
+    localparam int TEST_AWIDTH = XLEN;
     localparam logic [TEST_AWIDTH-1:0] TEST_START = 32'h0000_2000;
     localparam logic [TEST_AWIDTH-1:0] TEST_END   = 32'h0000_201f;
     localparam logic [TEST_AWIDTH-1:0] BASE_ADDR  = TEST_START + 32'd8;
@@ -110,7 +110,7 @@ module tb_memory_controller_sram;
             tests_run++;
             if (load_data !== expected) begin
                 tests_failed++;
-                $fatal(1, "%s: expected load 0x%08x, got 0x%08x",
+                $fatal(1, "%s: expected load 0x%016x, got 0x%016x",
                        name, expected, load_data);
             end
         end
@@ -127,10 +127,10 @@ module tb_memory_controller_sram;
             #1;
 
             tests_run++;
-            if (raw_data !== expected) begin
+            if (raw_data[31:0] !== expected[31:0]) begin
                 tests_failed++;
                 $fatal(1, "%s: expected raw word 0x%08x, got 0x%08x",
-                       name, expected, raw_data);
+                       name, expected[31:0], raw_data[31:0]);
             end
         end
     endtask
@@ -147,12 +147,12 @@ module tb_memory_controller_sram;
             tests_run++;
             if (load_data !== '0) begin
                 tests_failed++;
-                $fatal(1, "%s data: expected 0x%08x, got 0x%08x",
+                $fatal(1, "%s data: expected 0x%016x, got 0x%016x",
                        name, '0, load_data);
             end
             if (we !== '0) begin
                 tests_failed++;
-                $fatal(1, "%s we: expected 0b%04b, got 0b%04b",
+                $fatal(1, "%s we: expected 0b%08b, got 0b%08b",
                        name, '0, we);
             end
         end
@@ -162,7 +162,7 @@ module tb_memory_controller_sram;
         begin
             for (int offset = 0; offset < 32; offset += TEST_DWIDTH / 8) begin
                 store_through_controller(TEST_START + offset[TEST_AWIDTH-1:0],
-                                         '0, MEM_WORD);
+                                         '0, MEM_DOUBLE);
             end
         end
     endtask
@@ -191,7 +191,7 @@ module tb_memory_controller_sram;
         check_raw_word("byte store updates only addressed byte",
                        BASE_ADDR, 32'h1122_aa44);
         check_load("signed byte load sign extends sram byte",
-                   BASE_ADDR + 32'd1, MEM_BYTE, MEM_SIGNED, 32'hffff_ffaa);
+                   BASE_ADDR + 32'd1, MEM_BYTE, MEM_SIGNED, 64'hffff_ffff_ffff_ffaa);
         check_load("unsigned byte load zero extends sram byte",
                    BASE_ADDR + 32'd1, MEM_BYTE, MEM_UNSIGNED, 32'h0000_00aa);
 
@@ -199,7 +199,7 @@ module tb_memory_controller_sram;
         check_raw_word("halfword store updates addressed byte pair",
                        BASE_ADDR, 32'h8877_aa44);
         check_load("signed halfword load sign extends sram bytes",
-                   BASE_ADDR + 32'd2, MEM_HALF, MEM_SIGNED, 32'hffff_8877);
+                   BASE_ADDR + 32'd2, MEM_HALF, MEM_SIGNED, 64'hffff_ffff_ffff_8877);
         check_load("unsigned halfword load zero extends sram bytes",
                    BASE_ADDR + 32'd2, MEM_HALF, MEM_UNSIGNED, 32'h0000_8877);
 

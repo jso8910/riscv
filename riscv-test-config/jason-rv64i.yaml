@@ -3,11 +3,11 @@ $schema: config_schema.json#
 kind: architecture configuration
 type: fully configured
 
-name: jason-rv32i
-description: RV32I with standard machine-mode support
+name: jason-rv64i
+description: RV64I with standard machine-mode support
 
 params:
-  MXLEN: 32
+  MXLEN: 64
   PHYS_ADDR_WIDTH: 32
   M_MODE_ENDIANNESS: little
 
@@ -40,7 +40,7 @@ params:
   REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT: true
   REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION: false
 
-  MTVAL_WIDTH: 32
+  MTVAL_WIDTH: 64
 
   # ------------------------------------------------------------
   # Misaligned loads/stores

@@ -38,6 +38,7 @@ module control_unit (
         // By default (for LOAD/STORE/JAL/JALR/B) we want the ALU to output rs1 + imm
         ctrl_o.alu_op = ALU_ADD;
         ctrl_o.alu_sel_imm = '1;
+        ctrl_o.alu_word_op = '0;
 
         ctrl_o.branch = '0;
         ctrl_o.branch_cond = COND_EQ;
@@ -125,12 +126,17 @@ module control_unit (
                     LB : ctrl_o.mem_size = MEM_BYTE;
                     LH : ctrl_o.mem_size = MEM_HALF;
                     LW : ctrl_o.mem_size = MEM_WORD;
+                    LD : ctrl_o.mem_size = MEM_DOUBLE;
                     LBU : begin
                         ctrl_o.mem_size = MEM_BYTE;
                         ctrl_o.mem_signed = MEM_UNSIGNED;
                     end
                     LHU : begin
                         ctrl_o.mem_size = MEM_HALF;
+                        ctrl_o.mem_signed = MEM_UNSIGNED;
+                    end
+                    LWU : begin
+                        ctrl_o.mem_size = MEM_WORD;
                         ctrl_o.mem_signed = MEM_UNSIGNED;
                     end
                     default : ctrl_o.illegal = '1;
@@ -148,42 +154,53 @@ module control_unit (
                     SB : ctrl_o.mem_size = MEM_BYTE;
                     SH : ctrl_o.mem_size = MEM_HALF;
                     SW : ctrl_o.mem_size = MEM_WORD;
+                    SD : ctrl_o.mem_size = MEM_DOUBLE;
                     default : ctrl_o.illegal = '1;
                 endcase
             end
-            OP_IMM, OP: begin
+            OP_IMM, OP, OP_IMM_WORD, OP_WORD: begin
                 ctrl_o.inst_fmt = IMM_R;
                 ctrl_o.alu_sel_imm = '0;
-                if (opcode == OP_IMM) begin
+                if (opcode == OP_IMM || opcode == OP_IMM_WORD) begin
                     ctrl_o.alu_sel_imm = '1;
                     ctrl_o.inst_fmt = IMM_I;
                 end
 
-                casez ({funct3, funct7, ctrl_o.alu_sel_imm})
+                if (opcode == OP_IMM_WORD || opcode == OP_WORD) begin
+                    ctrl_o.alu_word_op = '1;
+                end
+
+                casez ({funct3, funct7, ctrl_o.alu_sel_imm, ctrl_o.alu_word_op})
                     // Add/sub
-                    {ADD_SUB, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_ADD;
-                    {ADD_SUB, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_ADD;
-                    {ADD_SUB, FUNCT7_ALT, 1'b0} : ctrl_o.alu_op = ALU_SUB;
+                    {ADD_SUB, FUNCT7_ANY, 1'b1, 1'b?} : ctrl_o.alu_op = ALU_ADD;
+                    {ADD_SUB, FUNCT7_BASE, 1'b0, 1'b?} : ctrl_o.alu_op = ALU_ADD;
+                    {ADD_SUB, FUNCT7_ALT, 1'b0, 1'b?} : ctrl_o.alu_op = ALU_SUB;
 
                     // I-type
-                    {SLT, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_SLT;
-                    {SLTU, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_SLTU;
-                    {XOR, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_XOR;
-                    {OR, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_OR;
-                    {AND, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_AND;
-                    {SLL, FUNCT7_BASE, 1'b1} : ctrl_o.alu_op = ALU_SLL;
+                    {SLT, FUNCT7_ANY, 1'b1, 1'b?} : ctrl_o.alu_op = ALU_SLT;
+                    {SLTU, FUNCT7_ANY, 1'b1, 1'b?} : ctrl_o.alu_op = ALU_SLTU;
+                    {XOR, FUNCT7_ANY, 1'b1, 1'b?} : ctrl_o.alu_op = ALU_XOR;
+                    {OR, FUNCT7_ANY, 1'b1, 1'b?} : ctrl_o.alu_op = ALU_OR;
+                    {AND, FUNCT7_ANY, 1'b1, 1'b?} : ctrl_o.alu_op = ALU_AND;
+                    {SLL, FUNCT7_BASE, 1'b1, 1'b1} : ctrl_o.alu_op = ALU_SLL;
+                    {SLL, FUNCT7_BASE[6:1], 1'b?, 1'b1, 1'b0} : ctrl_o.alu_op = ALU_SLL;
 
                     // R-type
-                    {SLT, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_SLT;
-                    {SLTU, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_SLTU;
-                    {XOR, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_XOR;
-                    {OR, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_OR;
-                    {AND, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_AND;
-                    {SLL, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_SLL;
+                    {SLT, FUNCT7_BASE, 1'b0, 1'b?} : ctrl_o.alu_op = ALU_SLT;
+                    {SLTU, FUNCT7_BASE, 1'b0, 1'b?} : ctrl_o.alu_op = ALU_SLTU;
+                    {XOR, FUNCT7_BASE, 1'b0, 1'b?} : ctrl_o.alu_op = ALU_XOR;
+                    {OR, FUNCT7_BASE, 1'b0, 1'b?} : ctrl_o.alu_op = ALU_OR;
+                    {AND, FUNCT7_BASE, 1'b0, 1'b?} : ctrl_o.alu_op = ALU_AND;
+                    {SLL, FUNCT7_BASE, 1'b0, 1'b?} : ctrl_o.alu_op = ALU_SLL;
 
                     // Right shift
-                    {SR, FUNCT7_BASE, 1'b?} : ctrl_o.alu_op = ALU_SRL;
-                    {SR, FUNCT7_ALT, 1'b?} : ctrl_o.alu_op = ALU_SRA;
+                    {SR, FUNCT7_BASE, 1'b?, 1'b1} : ctrl_o.alu_op = ALU_SRL;
+                    {SR, FUNCT7_BASE, 1'b0, 1'b0} : ctrl_o.alu_op = ALU_SRL;
+                    {SR, FUNCT7_ALT, 1'b?, 1'b1} : ctrl_o.alu_op = ALU_SRA;
+                    {SR, FUNCT7_ALT, 1'b0, 1'b0} : ctrl_o.alu_op = ALU_SRA;
+                    // bit 0 of where funct7 normally is is the MSB of shamt
+                    {SR, FUNCT7_BASE[6:1], 1'b?, 1'b1, 1'b0} : ctrl_o.alu_op = ALU_SRL;
+                    {SR, FUNCT7_ALT[6:1], 1'b?, 1'b1, 1'b0} : ctrl_o.alu_op = ALU_SRA;
                     default : ctrl_o.illegal = '1;
                 endcase
 

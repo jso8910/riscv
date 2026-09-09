@@ -8,31 +8,59 @@ module alu (
     output logic [XLEN-1:0] res_o
 );
     // Wire instantiation
-    logic [XLEN-1:0] op1, op2;
+    logic [XLEN-1:0] op1, op2, res;
+    logic [31:0] op1_32, op2_32, res32;
+    logic signed [31:0] op1_32signed, op2_32signed;
     logic signed [XLEN-1:0] op1_signed, op2_signed;
-    logic [4:0] shamt;
+    logic [5:0] shamt;
 
     // Wire assignments
     assign op1 = op1_data_i;
     assign op2 = ctrl_i.alu_sel_imm ? imm_i : op2_data_i;
-    assign op1_signed = op1, op2_signed = op2;
-    assign shamt = op2[4:0];
+
+    assign op1_32 = op1[31:0];
+    assign op2_32 = op2[31:0];
+    assign op1_32signed = signed'(op1_32), op2_32signed = signed'(op2_32);
+
+    assign op1_signed = signed'(op1), op2_signed = signed'(op2);
+    assign shamt = op2[5:0];
 
     always_comb begin
         // Default value to prevent inferring a latch
-        res_o = XLEN'(1'b0);
-        case (ctrl_i.alu_op)
-            ALU_ADD : res_o = op1 + op2;
-            ALU_SUB : res_o = op1 - op2;
-            ALU_SLT : res_o = (op1_signed < op2_signed) ? XLEN'(1'b1) : XLEN'(1'b0);
-            ALU_SLTU : res_o = (op1 < op2) ? XLEN'(1'b1) : XLEN'(1'b0);
-            ALU_XOR : res_o = op1 ^ op2;
-            ALU_OR : res_o = op1 | op2;
-            ALU_AND : res_o = op1 & op2;
-            ALU_SLL : res_o = op1 << shamt;
-            ALU_SRL : res_o = op1 >> shamt;
-            ALU_SRA : res_o = op1_signed >>> shamt;
-            default : $fatal(1);
-        endcase
+        res = XLEN'(1'b0);
+        res32 = 32'b0;
+        if (ctrl_i.alu_word_op) begin
+            case (ctrl_i.alu_op)
+                ALU_ADD : res32 = op1_32 + op2_32;
+                ALU_SUB : res32 = op1_32 - op2_32;
+                ALU_SLT : res32 = (op1_32signed < op2_32signed) ? 32'b1 : 32'b0;
+                ALU_SLTU : res32 = (op1_32 < op2_32) ? 32'b1 : 32'b0;
+                ALU_XOR : res32 = op1_32 ^ op2_32;
+                ALU_OR : res32 = op1_32 | op2_32;
+                ALU_AND : res32 = op1_32 & op2_32;
+                ALU_SLL : res32 = op1_32 << shamt[4:0];
+                ALU_SRL : res32 = op1_32 >> shamt[4:0];
+                // TODO is this correct?
+                ALU_SRA : res32 = unsigned'(op1_32signed >>> shamt[4:0]);
+                default : $fatal(1);
+            endcase
+            res_o = {{32{res32[31]}}, res32};
+        end else begin
+            case (ctrl_i.alu_op)
+                ALU_ADD : res = op1 + op2;
+                ALU_SUB : res = op1 - op2;
+                ALU_SLT : res = (op1_signed < op2_signed) ? XLEN'(1'b1) : XLEN'(1'b0);
+                ALU_SLTU : res = (op1 < op2) ? XLEN'(1'b1) : XLEN'(1'b0);
+                ALU_XOR : res = op1 ^ op2;
+                ALU_OR : res = op1 | op2;
+                ALU_AND : res = op1 & op2;
+                ALU_SLL : res = op1 << shamt;
+                ALU_SRL : res = op1 >> shamt;
+                // TODO is this correct?
+                ALU_SRA : res = unsigned'(op1_signed >>> shamt);
+                default : $fatal(1);
+            endcase
+            res_o = res;
+        end
     end
 endmodule : alu
