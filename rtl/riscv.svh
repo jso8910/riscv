@@ -440,8 +440,8 @@ package riscv;
     // Physical memory attribution
     // ===========================
     typedef struct packed {
-        logic [31:0] addr_low;
-        logic [31:0] addr_high;
+        logic [PHYS_ADDR_WIDTH-1:0] addr_low;
+        logic [PHYS_ADDR_WIDTH-1:0] addr_high;
         logic        main;          // High if part of main memory, low if MMIO (ie should not be executable)
         logic        writable;
         logic        readable;

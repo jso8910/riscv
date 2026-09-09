@@ -21,7 +21,7 @@ module csrfile (
     localparam int PMP_ENTRIES_PER_CFG_CSR = XLEN / 8;
 
     // CSR register definitions
-    logic [XLEN-1:0] mepc, mstatus, mstatush, mtvec, mip, mie, mscratch, mcause,
+    logic [XLEN-1:0] mepc, mstatus, mtvec, mip, mie, mscratch, mcause,
                      mtval, menvcfg, mseccfg, mcycle, minstret, mcountinhibit;
 
     // physical memory protection CSRs
@@ -259,7 +259,7 @@ function automatic logic [XLEN-1:0] legalize_csr_write(
 );
     case (csr_addr)
         // MEPC[1:0] cannot take any value other than 'b00
-        MEPC : legalize_csr_write = value & ~XLEN'(3);
+        MEPC : legalize_csr_write = value & ~(XLEN'('d3));
         MSTATUS : begin
             legalize_csr_write = (value & MSTATUS_WRITE_MASK_VAL) | (prev_val & ~MSTATUS_WRITE_MASK_VAL);
             if (machine_privilege_t'(legalize_csr_write[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB]) != IMPLEMENTED_PRIVILEGE) begin

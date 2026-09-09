@@ -46,7 +46,7 @@ module physical_memory_checker (
         pma_cfgs[0].readable = 1'b1;
 
         pma_cfgs[1].addr_low = MEM_END_ADDRESS + 1'b1;
-        pma_cfgs[1].addr_high = {XLEN{1'b1}};
+        pma_cfgs[1].addr_high = {PHYS_ADDR_WIDTH{1'b1}};
         pma_cfgs[1].main = 1'b0;
         pma_cfgs[1].writable = 1'b0;
         pma_cfgs[1].readable = 1'b0;
