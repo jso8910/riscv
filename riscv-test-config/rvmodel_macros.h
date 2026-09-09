@@ -23,12 +23,10 @@ fromhost:                                            \
 
 
 /*
- * No M-mode or CSRs.
- *
- * Defining this macro as EMPTY overrides ACT's normal
- * machine-mode startup code.
+ * The core implements the standard machine-mode CSR and trap interface, so
+ * ACT can use its normal M-mode boot and trap-handler setup.
  */
-#define RVMODEL_BOOT_TO_MMODE
+#define STANDARD_SM_SUPPORTED
 
 
 /*

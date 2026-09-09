@@ -1,196 +1,50 @@
-OUTPUT_ARCH("riscv")
-ENTRY(rvtest_entry_point)
+/* Set these to match the DUT memory map and hart count. */
 
-/*
- * ============================================================
- * Memory map
- * ============================================================
- *
- * IMEM:
- *   0x00000000 - 0x000fffff
- *
- * DMEM:
- *   0x00100000 - 0x001fffff
- */
-
-IMEM_ORIGIN = 0x00000000;
-IMEM_LENGTH = 0x00100000;
-
-DMEM_ORIGIN = 0x00100000;
-DMEM_LENGTH = 0x00100000;
-
-TEST_BASE = IMEM_ORIGIN;
-
+RAM_ORIGIN = 0x00000000;
+RAM_LENGTH = 0x00200000;
+TEST_BASE = RAM_ORIGIN;
 NUM_HARTS = 1;
 
-/*
- * ACT's normal default is 128 KiB.
- * You have 1 MiB of DMEM, so that's fine.
- */
-STACK_SIZE = 0x00020000;
+/* Most users should not need to modify anything below this line. */
 
-/*
- * Reserve the final 16 bytes of DMEM:
- *
- * 0x001ffff0 - 0x001ffff7 : tohost
- * 0x001ffff8 - 0x001fffff : fromhost
- */
+STACK_SIZE = 0x20000;
 TOHOST_ADDRESS = 0x001ffff0;
 
+OUTPUT_ARCH( "riscv" )
+ENTRY(rvtest_entry_point)
 
 MEMORY
 {
-    imem (rx) : ORIGIN = IMEM_ORIGIN, LENGTH = IMEM_LENGTH
-    dmem (rw) : ORIGIN = DMEM_ORIGIN, LENGTH = DMEM_LENGTH
+ram (rwx) : ORIGIN = RAM_ORIGIN, LENGTH = RAM_LENGTH
 }
-
 
 PROVIDE(__stack_size = STACK_SIZE);
 PROVIDE(__num_harts = NUM_HARTS);
 
-
 SECTIONS
 {
-    /*
-     * ========================================================
-     * Instruction memory
-     * ========================================================
-     */
+ASSERT(TEST_BASE >= ORIGIN(ram) && TEST_BASE < ORIGIN(ram) + LENGTH(ram), "TEST_BASE is outside RAM; update TEST_BASE and RAM_ORIGIN/RAM_LENGTH in link.ld, and the matching memory.regions entry in sail.json")
 
-    .text.init TEST_BASE :
-    {
-        *(.text.init)
-    } > imem
-
-
-    .text.rvtest . :
-    {
-        *(.text.rvtest)
-        *(.text.rvtest.*)
-    } > imem
-
-
-    /*
-     * Remember where ACT's test code ended.
-     *
-     * We need this because ACT requires .text.rvmodel to appear
-     * later in the linker script, after the data sections.
-     */
-    __rvtest_text_end = .;
-
-
-
-    /*
-     * ========================================================
-     * Data memory
-     * ========================================================
-     */
-
-    .rodata DMEM_ORIGIN :
-    {
-        *(.rodata)
-        *(.rodata.*)
-
-        *(.srodata)
-        *(.srodata.*)
-    } > dmem
-
-
-    .data . :
-    {
-        *(.data)
-        *(.data.*)
-
-        *(.sdata)
-        *(.sdata.*)
-    } > dmem
-
-
-    . = ALIGN(16);
-
-    .bss . :
-    {
-        __bss_start = .;
-
-        *(.sbss)
-        *(.sbss.*)
-
-        *(.bss)
-        *(.bss.*)
-
-        *(COMMON)
-
-        . = ALIGN(16);
-
-        __bss_end = .;
-    } > dmem
-
-
-    /*
-     * Stack comes immediately after normal test data.
-     */
-    . = ALIGN(16);
-
-    __stack_bottom = .;
-
-    . += __stack_size * __num_harts;
-
-    __stack_top = .;
-
-
-    /*
-     * Don't allow test data/stack to collide with tohost.
-     */
-    ASSERT(
-        __stack_top <= TOHOST_ADDRESS,
-        "ACT data/stack exceeds DMEM"
-    )
-
-
-    /*
-     * Place tohost/fromhost at the very top of DMEM.
-     */
-    .tohost TOHOST_ADDRESS :
-    {
-        KEEP(*(.tohost))
-    } > dmem
-
-
-
-    /*
-     * ========================================================
-     * Remaining executable code
-     * ========================================================
-     *
-     * ACT requires .text.rvmodel to OCCUR AFTER the data
-     * sections in this linker script.
-     *
-     * But we explicitly give it an address back inside IMEM.
-     */
-
-    __rvmodel_start = ALIGN(__rvtest_text_end, 16);
-
-    .text.rvmodel __rvmodel_start :
-    {
-        *(.text.rvmodel)
-        *(.text.rvmodel.*)
-
-        /*
-         * Catch any remaining text sections.
-         */
-        *(.text)
-        *(.text.*)
-    } > imem
-
-
-    __imem_end = .;
-
-
-    ASSERT(
-        __imem_end <= ORIGIN(imem) + LENGTH(imem),
-        "ACT code exceeds IMEM"
-    )
-
-
-    _end = __stack_top;
+.text.init TEST_BASE : { *(.text.init) } > ram
+.text.rvtest . : { *(.text.rvtest) *(.text.rvtest.*) } > ram
+. = ALIGN(0x4000);
+.rodata . : { *(.rodata) *(.rodata.*) *(.srodata) *(.srodata.*) } > ram
+.data . : { *(.data) *(.data.*) *(.sdata) *(.sdata.*) } > ram
+. = ALIGN(16);
+.bss . : {
+__bss_start = .;
+*(.sbss) *(.sbss.*) *(.bss) *(.bss.*) *(COMMON)
+. = ALIGN(16);
+__bss_end = .;
+} > ram
+. = ALIGN(16);
+__stack_bottom = .;
+. += __stack_size * __num_harts;
+__stack_top = .;
+. = ALIGN(0x1000);
+.text.rvmodel . : { *(.text.rvmodel) *(.text.rvmodel.*) *(.text) *(.text.*) } > ram
+. = ALIGN(0x1000);
+_end = .;
+ASSERT(_end <= ORIGIN(ram) + LENGTH(ram), "ACT ELF exceeds RAM; increase RAM_LENGTH in link.ld and the matching memory.regions size in sail.json")
+.tohost TOHOST_ADDRESS : { KEEP(*(.tohost)) } > ram
 }

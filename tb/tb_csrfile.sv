@@ -100,8 +100,14 @@ module tb_csrfile;
         #1;
         check("reset enters M-mode", privilege == M_MODE);
         read_csr("mstatus reset has MPP=M", MSTATUS, MSTATUS_VAL);
+        read_csr("mip reset has MTIP pending", MIP, 32'h0000_0080);
 
         rst_n = 1'b1;
+        write_csr(MIE, '1);
+        read_csr("mie implements standard M-mode enable bits", MIE, 32'h0000_0888);
+        write_csr(MIP, '0);
+        read_csr("mip ignores software writes", MIP, 32'h0000_0080);
+
         write_csr(MEPC, 32'h0000_1003);
         read_csr("mepc clears its two low bits", MEPC, 32'h0000_1000);
 

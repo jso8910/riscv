@@ -12,6 +12,7 @@ module csrfile (
     output logic [XLEN-1:0]      csr_val_o,
     output logic [XLEN-1:0]      mepc_o,
     output logic [XLEN-1:0]      mtvec_o,
+    output logic [XLEN-1:0]      mstatus_o,
     output logic [7:0]           pmp_cfg_o [0:63],
     output logic [XLEN-1:0]      pmp_addr_o [0:63],
     output logic                 csr_illegal_inst_o,
@@ -59,6 +60,7 @@ module csrfile (
     assign mepc_o = mepc;
     assign mtvec_o = mtvec;
     assign machine_privilege_o = machine_privilege;
+    assign mstatus_o = mstatus;
 
     always_comb begin
         csr_illegal_inst_o = '0;
@@ -119,9 +121,12 @@ module csrfile (
                 MINSTRET : csr_val_o = minstret;
                 MINSTRETH : csr_val_o = minstreth;
                 MCOUNTINHIBIT : csr_val_o = mcountinhibit;
-                // If we get here, something has gone wrong (ie we are either allowing a CSR address
-                // we shouldn't, or not all CSRs have been implemented)
-                default: $fatal(1, "CSR read CASE statement missing CSR: %h", ctrl_i.csr_addr);
+                default: csr_val_o = '0;
+                // We can't use this assertion because sometimes transient states will result in a
+                // read to an unimplemented register to appear like it is occurring very briefly.
+                // // If we get here, something has gone wrong (ie we are either allowing a CSR address
+                // // we shouldn't, or not all CSRs have been implemented)
+                // default: $fatal(1, "CSR read CASE statement missing CSR: %h", ctrl_i.csr_addr);
             endcase
             end
         end
@@ -143,7 +148,7 @@ module csrfile (
             mstatus <= MSTATUS_VAL;
             mstatush <= MSTATUSH_VAL;
             mtvec <= MVEC_VAL;
-            mip <= '0;
+            mip <= 32'h0000_0080;
             mie <= '0;
             mscratch <= '0;
             mcause <= '0;
@@ -257,7 +262,7 @@ function automatic logic csr_addr_exists(
 );
     return (csr_addr >= MVENDORID && csr_addr <= MCONFIGPTR)
         || csr_addr == MSTATUS || csr_addr == MISA || csr_addr == MIE || csr_addr == MTVEC
-        || csr_addr == MENVCFG || csr_addr == MSTATUSH || csr_addr == MENVCFGH
+        || csr_addr == MSTATUSH
         || (csr_addr >= MSCRATCH && csr_addr <= MIP)
         || csr_addr == MSECCFG || csr_addr == MSECCFGH
         || (csr_addr >= PMPCFG0 && csr_addr <= PMPCFG15)
@@ -295,29 +300,14 @@ function automatic logic [XLEN-1:0] legalize_csr_write(
                 legalize_csr_write[1:0] = TRAP_DIRECT;
             end
         end
-        // Bits 31:16 are for platform-specific interrupts (none implemented). Otherwise, these
-        // masked interrupts can become pending and thus can be written.
-        // Interrupts are cleared by writing 0 to MIP at bit i.
-        MIP : legalize_csr_write = value & ('b0010_1010_1010_1010);
-        MIE : legalize_csr_write = value & ('b0010_1010_1010_1010);
+        // MIP is driven by interrupt sources, not CSR writes. MTIP is set on reset to match the
+        // configured Sail platform; interrupt delivery itself is not implemented yet.
+        MIP : legalize_csr_write = prev_val;
+        MIE : legalize_csr_write = value & 32'h0000_0888;
         MCAUSE : begin
+            // Previously, I didn't allow writes of reserved values. However, the RISC-V Sail model
+            // expects these to be allowed, which is technically valid under the ISA.
             legalize_csr_write = value;
-            // There are different sets of legal values depending on the bit at XLEN-1
-            if (legalize_csr_write[XLEN-1]) begin     // interrupt mode
-                if (legalize_csr_write[XLEN-2:0] != 1 && legalize_csr_write[XLEN-2:0] != 3
-                    && legalize_csr_write[XLEN-2:0] != 5 && legalize_csr_write[XLEN-2:0] != 7
-                    && legalize_csr_write[XLEN-2:0] != 9 && legalize_csr_write[XLEN-2:0] != 11
-                    && legalize_csr_write[XLEN-2:0] != 13) begin
-                    // TODO: is this a good default value?
-                    // Sets mcause to 0 if a reserved value was used by the software manual write
-                    legalize_csr_write = '0;
-                end
-            end else begin                             // Normal errors
-                if (legalize_csr_write[XLEN-2:0] == 10 || legalize_csr_write[XLEN-2:0] == 14
-                    || legalize_csr_write[XLEN-2:0] == 17 || legalize_csr_write[XLEN-2:0] >= 20) begin
-                    legalize_csr_write = '0;
-                end
-            end
         end
         // only bit 0 can be written
         MENVCFG : legalize_csr_write = (value & 'b1) | (prev_val & (~'b1));

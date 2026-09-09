@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -67,7 +69,7 @@ def extract_memory_records(combined_memh: Path, memory_path: Path) -> None:
     write_memory_records(records, memory_path)
 
 
-def compile_testbench(repo_root: Path, output_vvp: Path) -> bool:
+def compile_iverilog_testbench(repo_root: Path, output_vvp: Path) -> bool:
     iverilog = shutil.which("iverilog")
     if iverilog is None:
         print("Error: iverilog not found on PATH")
@@ -96,6 +98,87 @@ def compile_testbench(repo_root: Path, output_vvp: Path) -> bool:
     return result.returncode == 0
 
 
+def filelist_sources(repo_root: Path, filelist: Path, seen: set[Path] | None = None) -> list[Path]:
+    """Return HDL sources named by a file list, including nested lists."""
+    if seen is None:
+        seen = set()
+    filelist = filelist.resolve()
+    if filelist in seen:
+        return []
+    seen.add(filelist)
+
+    sources = [filelist]
+    for raw_line in filelist.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("//"):
+            continue
+        if line.startswith("-f "):
+            sources.extend(filelist_sources(repo_root, repo_root / line[3:].strip(), seen))
+        elif not line.startswith("-"):
+            sources.append((repo_root / line).resolve())
+    return sources
+
+
+def verilator_source_signature(repo_root: Path) -> str:
+    """Hash all Verilator inputs so a cached binary is never stale."""
+    digest = hashlib.sha256()
+    sources = [repo_root / "sim/tb_arch_test.f", repo_root / "tb/tb_arch_test.sv"]
+    sources.extend(filelist_sources(repo_root, repo_root / "sim/core_rtl.f"))
+    for source in sources:
+        digest.update(source.relative_to(repo_root).as_posix().encode())
+        digest.update(source.read_bytes())
+    return digest.hexdigest()
+
+
+def compile_verilator_testbench(repo_root: Path, *, rebuild: bool) -> Path | None:
+    """Build (or reuse) a process-safe cached Verilator architecture-test binary."""
+    verilator = shutil.which("verilator")
+    if verilator is None:
+        print("Error: verilator not found on PATH")
+        return None
+
+    build_root = repo_root / "build"
+    build_dir = build_root / "verilator_arch_test"
+    binary = build_dir / "Vtb_arch_test"
+    signature_file = build_dir / ".source-signature"
+    lock_file = build_root / ".verilator_arch_test.lock"
+    signature = verilator_source_signature(repo_root)
+    build_root.mkdir(exist_ok=True)
+
+    # run_tests.py starts one runner process per ELF. Serialize the first build so
+    # all workers subsequently share one known-good executable.
+    with lock_file.open("w") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            if not rebuild and binary.is_file() and signature_file.is_file() and signature_file.read_text() == signature:
+                return binary
+
+            build_dir.mkdir(exist_ok=True)
+            result = run_checked(
+                [
+                    verilator,
+                    "--binary",
+                    "--timing",
+                    "--top-module",
+                    "tb_arch_test",
+                    "--Mdir",
+                    str(build_dir),
+                    "-Wno-fatal",
+                    "-f",
+                    "sim/core_rtl.f",
+                    "tb/tb_arch_test.sv",
+                ],
+                cwd=repo_root,
+            )
+            print(result.stdout, end="")
+            if result.returncode != 0:
+                return None
+            signature_file.write_text(signature)
+            return binary
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 def test_name_from_elf(elf_path: Path) -> str:
     stem = elf_path.stem
     if stem.endswith(".sig"):
@@ -107,6 +190,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run one ACT ELF on the local RTL core")
     parser.add_argument("--max-cycles", type=int, default=2_000_000)
     parser.add_argument("--objcopy", default="riscv32-unknown-elf-objcopy")
+    parser.add_argument(
+        "--simulator",
+        choices=("verilator", "iverilog"),
+        default="verilator",
+        help="Simulation backend (default: verilator; iverilog is a compatibility fallback)",
+    )
+    parser.add_argument("--rebuild", action="store_true", help="Rebuild the cached Verilator executable")
     parser.add_argument("elf", type=Path)
     args = parser.parse_args()
 
@@ -125,11 +215,20 @@ def main() -> int:
         print(f"Error: {args.objcopy} not found on PATH")
         return 1
 
-    vvp = shutil.which("vvp")
-    if vvp is None:
-        print(f'RVCP-SUMMARY: TEST FAILED - Test File "{test_name}"')
-        print("Error: vvp not found on PATH")
-        return 1
+    simulator_binary: Path | str
+    if args.simulator == "verilator":
+        verilator_binary = compile_verilator_testbench(repo_root, rebuild=args.rebuild)
+        if verilator_binary is None:
+            print(f'RVCP-SUMMARY: TEST FAILED - Test File "{test_name}"')
+            return 1
+        simulator_binary = verilator_binary
+    else:
+        vvp = shutil.which("vvp")
+        if vvp is None:
+            print(f'RVCP-SUMMARY: TEST FAILED - Test File "{test_name}"')
+            print("Error: vvp not found on PATH")
+            return 1
+        simulator_binary = vvp
 
     with tempfile.TemporaryDirectory(prefix="riscv-arch-test-") as tmp:
         tmp_path = Path(tmp)
@@ -152,14 +251,15 @@ def main() -> int:
             print(f"Error: {exc}")
             return 1
 
-        if not compile_testbench(repo_root, simv):
-            print(f'RVCP-SUMMARY: TEST FAILED - Test File "{test_name}"')
-            return 1
+        if args.simulator == "iverilog":
+            if not compile_iverilog_testbench(repo_root, simv):
+                print(f'RVCP-SUMMARY: TEST FAILED - Test File "{test_name}"')
+                return 1
 
         sim_result = run_checked(
             [
-                vvp,
-                str(simv),
+                str(simulator_binary),
+                *([str(simv)] if args.simulator == "iverilog" else []),
                 f"+mem={memory_records}",
                 f"+max_cycles={args.max_cycles}",
             ],

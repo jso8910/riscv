@@ -10,7 +10,8 @@ module tb_memory_controller_sram;
     localparam logic [TEST_AWIDTH-1:0] BASE_ADDR  = TEST_START + 32'd8;
 
     logic                         clk;
-    logic [TEST_AWIDTH-1:0]       address;
+    logic [TEST_AWIDTH-1:0]       address_1;
+    logic [TEST_AWIDTH-1:0]       address_2;
     logic [TEST_DWIDTH-1:0]       store_data;
     logic [TEST_DWIDTH-1:0]       raw_data;
     logic [TEST_DWIDTH-1:0]       load_data;
@@ -28,10 +29,12 @@ module tb_memory_controller_sram;
         .END_ADDRESS(TEST_END)
     ) memory (
         .clk(clk),
-        .address_i(address),
+        .address_1_i(address_1),
+        .address_2_i(address_2),
         .data_i(store_data),
         .we_i(we),
-        .data_o(raw_data)
+        .data_1_o(raw_data),
+        .data_2_o()
     );
 
     memory_controller controller (
@@ -65,7 +68,7 @@ module tb_memory_controller_sram;
         input mem_size_t              mem_size
     );
         begin
-            address = addr;
+            address_1 = addr;
             store_data = data;
             set_ctrl(1'b0, 1'b1, mem_size, MEM_SIGNED);
             #1;
@@ -82,7 +85,7 @@ module tb_memory_controller_sram;
         input mem_size_t              mem_size
     );
         begin
-            address = addr;
+            address_1 = addr;
             store_data = data;
             set_ctrl(1'b0, 1'b0, mem_size, MEM_SIGNED);
             #1;
@@ -100,7 +103,7 @@ module tb_memory_controller_sram;
         input logic [TEST_DWIDTH-1:0]  expected
     );
         begin
-            address = addr;
+            address_1 = addr;
             set_ctrl(1'b1, 1'b0, mem_size, mem_signed);
             #1;
 
@@ -119,7 +122,7 @@ module tb_memory_controller_sram;
         input logic [TEST_DWIDTH-1:0]  expected
     );
         begin
-            address = addr;
+            address_1 = addr;
             set_ctrl(1'b0, 1'b0, MEM_NONE, MEM_SIGNED);
             #1;
 
@@ -137,7 +140,7 @@ module tb_memory_controller_sram;
         input logic [TEST_AWIDTH-1:0] addr
     );
         begin
-            address = addr;
+            address_1 = addr;
             set_ctrl(1'b0, 1'b0, MEM_WORD, MEM_SIGNED);
             #1;
 
@@ -166,7 +169,8 @@ module tb_memory_controller_sram;
 
     initial begin
         clk = 1'b0;
-        address = TEST_START;
+        address_1 = TEST_START;
+        address_2 = TEST_START;
         store_data = '0;
         ctrl = '0;
         commit = 1'b1;

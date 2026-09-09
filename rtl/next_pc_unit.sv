@@ -34,7 +34,7 @@ module next_pc_unit (
         // Bit 0 must be cleared for JALR
         if (ctrl_i.jalr) pc_branch = pc_branch & ~(XLEN'(1'b1));
 
-        if (ctrl_i.jal || ctrl_i.jalr) branch_taken = 1'b1;
+        if (ctrl_i.jal || ctrl_i.jalr || ctrl_i.mret) branch_taken = 1'b1;
         else if (ctrl_i.branch) begin
             case (ctrl_i.branch_cond)
                 COND_EQ : branch_taken = op1 == op2;

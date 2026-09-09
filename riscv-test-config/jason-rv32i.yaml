@@ -4,7 +4,7 @@ kind: architecture configuration
 type: fully configured
 
 name: jason-rv32i
-description: RV32I instruction set
+description: RV32I with standard machine-mode support
 
 params:
   MXLEN: 32
@@ -14,19 +14,18 @@ params:
   # ------------------------------------------------------------
   # Exceptions/traps
   #
-  # These are effectively dummy values for your current DUT,
-  # because you are not running privileged tests.
+  # The core takes synchronous exceptions precisely at the faulting PC.
   # ------------------------------------------------------------
 
-  PRECISE_SYNCHRONOUS_EXCEPTIONS: false
+  PRECISE_SYNCHRONOUS_EXCEPTIONS: true
 
-  TRAP_ON_ECALL_FROM_M: false
-  TRAP_ON_EBREAK: false
+  TRAP_ON_ECALL_FROM_M: true
+  TRAP_ON_EBREAK: true
 
   TRAP_ON_ILLEGAL_WLRL: false
-  TRAP_ON_UNIMPLEMENTED_INSTRUCTION: false
-  TRAP_ON_RESERVED_INSTRUCTION: false
-  TRAP_ON_UNIMPLEMENTED_CSR: false
+  TRAP_ON_UNIMPLEMENTED_INSTRUCTION: true
+  TRAP_ON_RESERVED_INSTRUCTION: true
+  TRAP_ON_UNIMPLEMENTED_CSR: true
 
   # ------------------------------------------------------------
   # mtval
@@ -36,12 +35,12 @@ params:
   REPORT_VA_IN_MTVAL_ON_LOAD_MISALIGNED: false
   REPORT_VA_IN_MTVAL_ON_STORE_AMO_MISALIGNED: false
   REPORT_VA_IN_MTVAL_ON_INSTRUCTION_MISALIGNED: false
-  REPORT_VA_IN_MTVAL_ON_LOAD_ACCESS_FAULT: false
-  REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT: false
-  REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT: false
+  REPORT_VA_IN_MTVAL_ON_LOAD_ACCESS_FAULT: true
+  REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT: true
+  REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT: true
   REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION: false
 
-  MTVAL_WIDTH: 0
+  MTVAL_WIDTH: 32
 
   # ------------------------------------------------------------
   # Misaligned loads/stores
@@ -73,17 +72,18 @@ params:
   # misa
   # ------------------------------------------------------------
 
-  MISA_CSR_IMPLEMENTED: false
+  MISA_CSR_IMPLEMENTED: true
 
   # ------------------------------------------------------------
   # mtvec
   #
-  # Dummy minimal legal configuration.
-  # ro + only direct mode avoids needing base-alignment parameters.
+  # Both direct and vectored modes have 4-byte base alignment.
   # ------------------------------------------------------------
 
-  MTVEC_ACCESS: ro
-  MTVEC_MODES: [0]
+  MTVEC_ACCESS: rw
+  MTVEC_MODES: [0, 1]
+  MTVEC_BASE_ALIGNMENT_DIRECT: 4
+  MTVEC_BASE_ALIGNMENT_VECTORED: 4
   MTVEC_ILLEGAL_WRITE_BEHAVIOR: retain
 
   # ------------------------------------------------------------
@@ -91,11 +91,18 @@ params:
   # ------------------------------------------------------------
 
   PMA_GRANULARITY: 2
-  NUM_PMP_ENTRIES: 0
+  NUM_PMP_ENTRIES: 64
+  PMP_GRANULARITY: 2
+  NUM_USABLE_PMP_ENTRIES: 64
+  PMP_NA4_SUPPORTED: true
+  PMP_NAPOT_SUPPORTED: true
+  PMP_TOR_SUPPORTED: true
 
   # ------------------------------------------------------------
   # Performance counters
   # ------------------------------------------------------------
+
+  TIME_CSR_IMPLEMENTED: false
 
   HPM_COUNTER_EN:
     [
@@ -109,7 +116,19 @@ params:
       false, false, false, false
     ]
 
-  MCOUNTINHIBIT_IMPLEMENTED: false
+  MCOUNTINHIBIT_IMPLEMENTED: true
+
+  COUNTINHIBIT_EN:
+    [
+      true, false, true, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false
+    ]
 
   MCOUNTENABLE_EN:
     [
@@ -126,6 +145,12 @@ params:
 implemented_extensions:
   - name: I
     version: "= 2.1"
+  - name: Zicntr
+    version: "= 2.0"
+  - name: Zihpm
+    version: "= 2.0"
+  - name: Zicsr
+    version: "= 2.0"
   - name: Sm
     version: "= 1.12.0"
 

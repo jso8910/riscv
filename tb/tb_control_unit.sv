@@ -69,8 +69,35 @@ module tb_control_unit;
         check("standard MRET decodes as a return through MEPC",
               ctrl.mret && ctrl.branch && ctrl.branch_src == SRC_MEPC && !ctrl.illegal);
 
-        drive(32'h1050_0073); // unsupported SYSTEM privileged instruction
-        check("unsupported privileged SYSTEM encoding is illegal", ctrl.illegal);
+        drive(32'h1050_0073); // standard WFI encoding
+        check("WFI is a legal no-op",
+              !ctrl.illegal && !ctrl.branch && !ctrl.jal && !ctrl.jalr
+              && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write
+              && !ctrl.csr_read && !ctrl.csr_write);
+
+        drive(32'h0000_10e7); // invalid JALR funct3, with rd=x1
+        check("invalid JALR has no side effects",
+              ctrl.illegal && !ctrl.branch && !ctrl.jal && !ctrl.jalr
+              && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write
+              && !ctrl.csr_read && !ctrl.csr_write);
+
+        drive(32'h0000_2063); // invalid BRANCH funct3
+        check("invalid branch has no side effects",
+              ctrl.illegal && !ctrl.branch && !ctrl.jal && !ctrl.jalr
+              && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write
+              && !ctrl.csr_read && !ctrl.csr_write);
+
+        drive(32'h0000_3083); // invalid LOAD funct3, with rd=x1
+        check("invalid load has no memory or register side effect",
+              ctrl.illegal && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write);
+
+        drive(32'h0000_3023); // invalid STORE funct3
+        check("invalid store has no memory side effect",
+              ctrl.illegal && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write);
+
+        drive(32'h4000_1093); // invalid SLLI funct7, with rd=x1
+        check("invalid ALU instruction has no register side effect",
+              ctrl.illegal && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write);
 
         if (tests_failed == 0) begin
             $display("tb_control_unit: all %0d checks passed", tests_run);

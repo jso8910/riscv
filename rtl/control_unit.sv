@@ -1,9 +1,10 @@
 import riscv::*;
 
 module control_unit (
-    input logic [IALIGN-1:0] inst_i,
-    output logic [XLEN-1:0]  imm_o,
-    output ctrl_t            ctrl_o
+    input logic [IALIGN-1:0]  inst_i,
+    input machine_privilege_t current_privilege_i,
+    output logic [XLEN-1:0]   imm_o,
+    output ctrl_t             ctrl_o
 );
 
     // =========================
@@ -160,25 +161,25 @@ module control_unit (
 
                 casez ({funct3, funct7, ctrl_o.alu_sel_imm})
                     // Add/sub
-                    {ADD_SUB, FUNCT7_ANY, '1} : ctrl_o.alu_op = ALU_ADD;
-                    {ADD_SUB, FUNCT7_BASE, '0} : ctrl_o.alu_op = ALU_ADD;
-                    {ADD_SUB, FUNCT7_ALT, '0} : ctrl_o.alu_op = ALU_SUB;
+                    {ADD_SUB, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_ADD;
+                    {ADD_SUB, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_ADD;
+                    {ADD_SUB, FUNCT7_ALT, 1'b0} : ctrl_o.alu_op = ALU_SUB;
 
                     // I-type
-                    {SLT, FUNCT7_ANY, '1} : ctrl_o.alu_op = ALU_SLT;
-                    {SLTU, FUNCT7_ANY, '1} : ctrl_o.alu_op = ALU_SLTU;
-                    {XOR, FUNCT7_ANY, '1} : ctrl_o.alu_op = ALU_XOR;
-                    {OR, FUNCT7_ANY, '1} : ctrl_o.alu_op = ALU_OR;
-                    {AND, FUNCT7_ANY, '1} : ctrl_o.alu_op = ALU_AND;
-                    {SLL, FUNCT7_BASE, '1} : ctrl_o.alu_op = ALU_SLL;
+                    {SLT, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_SLT;
+                    {SLTU, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_SLTU;
+                    {XOR, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_XOR;
+                    {OR, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_OR;
+                    {AND, FUNCT7_ANY, 1'b1} : ctrl_o.alu_op = ALU_AND;
+                    {SLL, FUNCT7_BASE, 1'b1} : ctrl_o.alu_op = ALU_SLL;
 
                     // R-type
-                    {SLT, FUNCT7_BASE, '0} : ctrl_o.alu_op = ALU_SLT;
-                    {SLTU, FUNCT7_BASE, '0} : ctrl_o.alu_op = ALU_SLTU;
-                    {XOR, FUNCT7_BASE, '0} : ctrl_o.alu_op = ALU_XOR;
-                    {OR, FUNCT7_BASE, '0} : ctrl_o.alu_op = ALU_OR;
-                    {AND, FUNCT7_BASE, '0} : ctrl_o.alu_op = ALU_AND;
-                    {SLL, FUNCT7_BASE, '0} : ctrl_o.alu_op = ALU_SLL;
+                    {SLT, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_SLT;
+                    {SLTU, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_SLTU;
+                    {XOR, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_XOR;
+                    {OR, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_OR;
+                    {AND, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_AND;
+                    {SLL, FUNCT7_BASE, 1'b0} : ctrl_o.alu_op = ALU_SLL;
 
                     // Right shift
                     {SR, FUNCT7_BASE, 1'b?} : ctrl_o.alu_op = ALU_SRL;
@@ -209,7 +210,12 @@ module control_unit (
                             ctrl_o.mret = '1;
                             ctrl_o.branch_src = SRC_MEPC;
                             ctrl_o.branch = '1;
+                            if (current_privilege_i != M_MODE) begin
+                                ctrl_o.illegal = '1;
+                            end
                         end
+                        // WFI is implemented as a NOP, which is legal.
+                        WFI : ;
                         default : ctrl_o.illegal = '1;
                     endcase
 
@@ -263,6 +269,12 @@ module control_unit (
                 ctrl_o.illegal = '1;
             end
         endcase
+
+        // If we have an illegal instruction, we want to also clear all side effects
+        if (ctrl_o.illegal) begin
+            ctrl_o = '0;
+            ctrl_o.illegal = '1;
+        end
 
         // Control invariants
         assert(!(ctrl_o.mem_read && ctrl_o.mem_write)) else $fatal(1, "Should not be reading and writing through the same memory channel at the same time!");

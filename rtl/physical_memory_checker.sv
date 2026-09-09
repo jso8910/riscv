@@ -7,6 +7,7 @@ module physical_memory_checker (
     input logic [XLEN-1:0]     pc_i,
     input ctrl_t               ctrl_i,
     input logic [XLEN-1:0]     data_mem_addr_i,
+    input logic [XLEN-1:0]     mstatus_i,
     output logic               pma_instruction_fetch_exception_o,
     output logic               pma_write_exception_o,
     output logic               pma_read_exception_o,
@@ -27,26 +28,25 @@ module physical_memory_checker (
                      pc_pmp_range_btm, pc_pmp_range_top;
     logic [5:0] access_matching_pmp_idx, pc_matching_pmp_idx, n_trailing_1s;
 
+    machine_privilege_t effective_privilege;
+    assign effective_privilege = machine_privilege_t'(current_privilege_i == M_MODE && mstatus_i[MSTATUS_MPRV] ? 
+                                mstatus_i[MSTATUS_MPP_MSB:MSTATUS_MPP_LSB] :
+                                current_privilege_i);
+
     // Static platform PMA map: executable main memory followed by unallocated
     // address space.
     always_comb begin
-        pma_cfgs[0].addr_low = IMEM_START_ADDRESS;
-        pma_cfgs[0].addr_high = IMEM_END_ADDRESS;
+        pma_cfgs[0].addr_low = MEM_START_ADDRESS;
+        pma_cfgs[0].addr_high = MEM_END_ADDRESS;
         pma_cfgs[0].main = 1'b1;
-        pma_cfgs[0].writable = 1'b0;
+        pma_cfgs[0].writable = 1'b1;
         pma_cfgs[0].readable = 1'b1;
 
-        pma_cfgs[1].addr_low = DMEM_START_ADDRESS;
-        pma_cfgs[1].addr_high = DMEM_END_ADDRESS;
-        pma_cfgs[1].main = 1'b1;
-        pma_cfgs[1].writable = 1'b1;
-        pma_cfgs[1].readable = 1'b1;
-
-        pma_cfgs[2].addr_low = DMEM_END_ADDRESS + 1'b1;
-        pma_cfgs[2].addr_high = {XLEN{1'b1}};
-        pma_cfgs[2].main = 1'b0;
-        pma_cfgs[2].writable = 1'b0;
-        pma_cfgs[2].readable = 1'b0;
+        pma_cfgs[1].addr_low = MEM_END_ADDRESS + 1'b1;
+        pma_cfgs[1].addr_high = {XLEN{1'b1}};
+        pma_cfgs[1].main = 1'b0;
+        pma_cfgs[1].writable = 1'b0;
+        pma_cfgs[1].readable = 1'b0;
     end
 
     function automatic pma_cfg_t pma_cfg_for_addr(input logic [XLEN-1:0] address);
@@ -197,16 +197,16 @@ module physical_memory_checker (
                     // The range is (pmp_addr_i[i-1] << 2)..(pmp_addr_i[i] << 2)
                     // if i==0, the bottom of the range is 0
                     if (i != 0)
-                        bottom_of_range = pmp_addr_i[i-1] << 2;
+                        bottom_of_range = {1'b0, pmp_addr_i[i-1], 2'b00};
                     else
                         bottom_of_range = '0;
-                    top_of_range = pmp_addr_i[i] << 2;
+                    top_of_range = {1'b0, pmp_addr_i[i], 2'b00};
                     
                 end
                 PMP_NA4 : begin
                     // range is (pmp_addr_i[i] << 2)..((pmp_addr_i[i] << 2) + 4)
-                    bottom_of_range = pmp_addr_i[i] << 2;
-                    top_of_range = (pmp_addr_i[i] << 2) + 4;
+                    bottom_of_range = {1'b0, pmp_addr_i[i], 2'b00};
+                    top_of_range = {1'b0, pmp_addr_i[i], 2'b00} + 4;
                 end
                 PMP_NAPOT : begin
                     n_trailing_1s = 0;
@@ -224,8 +224,13 @@ module physical_memory_checker (
                             end
                         end
                     end
-                    bottom_of_range = (pmp_addr_i[i] >> (n_trailing_1s + 1)) << (n_trailing_1s + 3);
-                    top_of_range = bottom_of_range + (1 << (3 + n_trailing_1s));
+                    // Widen before shifting: a NAPOT region can end above the
+                    // 32-bit address space, even though individual accesses are
+                    // XLEN wide.
+                    bottom_of_range = ({3'b000, pmp_addr_i[i]} >> (n_trailing_1s + 1))
+                                      << (n_trailing_1s + 3);
+                    top_of_range = bottom_of_range
+                                 + ((XLEN + 3)'(1) << (3 + n_trailing_1s));
                 end
                 // Here, I skip the $fatal(1) because I specifically know that there will never be
                 // any more PMA modes.
@@ -258,7 +263,7 @@ module physical_memory_checker (
         // If we are currently in M mode, we only apply a PMP's permissions if L == 1. However,
         // there is still a fault if the PMP partially covers the memory area.
         // We also bypass the permissions if there was no match, because M-mode permits unmatched accesses.
-        bypass_permissions = current_privilege_i == M_MODE && (!access_pmp_matched || !pmp_cfg_i[access_matching_pmp_idx][PMPCFG_L_IDX]);
+        bypass_permissions = effective_privilege == M_MODE && (!access_pmp_matched || !pmp_cfg_i[access_matching_pmp_idx][PMPCFG_L_IDX]);
         // There are three conditions for a PMP fault:
         //  1. There is at least one implemented PMP, but not one covering the entirety of this
         //     access.
@@ -285,6 +290,7 @@ module physical_memory_checker (
             end
         end
 
+        // Instruction fetches always use the current privilege rather than the effective (MPRV) privilege.
         bypass_permissions = current_privilege_i == M_MODE && (!pc_pmp_matched || !pmp_cfg_i[pc_matching_pmp_idx][PMPCFG_L_IDX]);
         for (int i = 0; i < 4; i++) begin
             // this works even if no pmp matched because the default (0..0) has no address matches

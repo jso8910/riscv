@@ -10,10 +10,8 @@ package riscv;
     localparam logic [REG_ADDR_W-1:0] X0 = 5'd0;
 
     localparam logic [XLEN-1:0] RESET_PC           = 32'd0;
-    localparam logic [XLEN-1:0] IMEM_START_ADDRESS = 'h00_00_00_00;
-    localparam logic [XLEN-1:0] IMEM_END_ADDRESS   = 'h00_0f_ff_ff;
-    localparam logic [XLEN-1:0] DMEM_START_ADDRESS = 'h00_10_00_00;
-    localparam logic [XLEN-1:0] DMEM_END_ADDRESS   = 'h00_1f_ff_ff;
+    localparam logic [XLEN-1:0] MEM_START_ADDRESS = 'h00_00_00_00;
+    localparam logic [XLEN-1:0] MEM_END_ADDRESS   = 'h00_1f_ff_ff;
 
     // ================
     // Privilege levels
@@ -161,14 +159,15 @@ package riscv;
     localparam logic [XLEN-1:0] MSTATUSH_VAL = 'h0;
     // The only bits of mstatus which can be changed in this current machine mode
     // implementation are
+    //  - 17    - MPRV // not yet
     //  - 12:11 - MPP, must be set to a legal privilege mode. Technically for now only M,
     //    but will implement all of M, S, and U
     //  - 7     - MPIE
-    //  - 5     - SPIE
+    //  - 5     - SPIE // not yet
     //  - 3     - MIE
-    //  - 1     - SIE
+    //  - 1     - SIE // not yet
     // All other bits are kept the same (generally 0)
-    localparam logic [XLEN-1:0] MSTATUS_WRITE_MASK_VAL = 'h00_00_18_AA;
+    localparam logic [XLEN-1:0] MSTATUS_WRITE_MASK_VAL = (1 <<MSTATUS_MPP_MSB) | (1 << MSTATUS_MPP_LSB) | (1 << MSTATUS_MPIE) | (1 << MSTATUS_MIE);
     // No bits in mstatush can be written in this implementation
     localparam logic [XLEN-1:0] MSTATUSH_WRITE_MASK_VAL = 'h00_00_00_00;
 
@@ -263,6 +262,7 @@ package riscv;
     localparam logic [31:0] ECALL  = 32'b000000000000_00000_000_00000_1110011;
     localparam logic [31:0] EBREAK = 32'b000000000001_00000_000_00000_1110011;
     localparam logic [31:0] MRET   = 32'h3020_0073;
+    localparam logic [31:0] WFI    = 32'h1050_0073;
     // todo: not implemented yet
     // localparam logic [31:0] SRET   = 32'h;
 

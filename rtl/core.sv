@@ -19,7 +19,7 @@ module riscv_core (
     machine_privilege_t machine_privilege;
     logic [XLEN-1:0] next_pc, rs1_data, rs2_data, csr_val,
                      alu_res, imm, mem_content, op1, mepc, mtvec,
-                     pma_faulting_addr, pmp_faulting_addr;
+                     pma_faulting_addr, pmp_faulting_addr, mstatus;
     logic csr_illegal_inst, commit, retire_count, cycle_tick, address_misaligned,
           pma_instruction_fetch_exception, pma_write_exception, pma_read_exception,
           memory_checker_hardware_fault, hardware_fault, pmp_write_exception, pmp_read_exception,
@@ -75,6 +75,7 @@ module riscv_core (
     // ==============
     control_unit u_control_unit (
         .inst_i    (inst_i),
+        .current_privilege_i(machine_privilege),
         .imm_o     (imm),
         .ctrl_o    (ctrl)
     );
@@ -156,6 +157,7 @@ module riscv_core (
         .csr_val_o          (csr_val),
         .mepc_o             (mepc),
         .mtvec_o            (mtvec),
+        .mstatus_o          (mstatus),
         .pmp_cfg_o          (pmp_cfg),
         .pmp_addr_o         (pmp_addr),
         .csr_illegal_inst_o (csr_illegal_inst),
@@ -180,6 +182,7 @@ module riscv_core (
         .pc_i                             (pc_o),
         .ctrl_i                           (ctrl),
         .data_mem_addr_i                  (data_mem_addr_o),
+        .mstatus_i                        (mstatus),
         .pma_instruction_fetch_exception_o(pma_instruction_fetch_exception),
         .pma_write_exception_o            (pma_write_exception),
         .pma_read_exception_o             (pma_read_exception),
@@ -214,33 +217,20 @@ module riscv_system (
         .data_mem_data_o    (data_mem_data_o)
     );
 
-    // Instruction memory
-    sram #(
-        .DWIDTH           (IALIGN),
-        .NUM_BYTES        (IALIGN/8),
-        .AWIDTH           (XLEN),
-        .START_ADDRESS    (IMEM_START_ADDRESS),
-        .END_ADDRESS      (IMEM_END_ADDRESS)
-    ) instruction_sram (
-        .clk              (clk),
-        .address_i        (pc_o),
-        .data_i           (32'b0),
-        .we_i             ('0),
-        .data_o           (inst_i)
-    );
-
-    // Data memory
+    // All memory, from the start of IMEM to end of DMEM.
     sram #(
         .DWIDTH           (WWIDTH),
         .NUM_BYTES        (WWIDTH/8),
         .AWIDTH           (XLEN),
-        .START_ADDRESS    (DMEM_START_ADDRESS),
-        .END_ADDRESS      (DMEM_END_ADDRESS)
+        .START_ADDRESS    (MEM_START_ADDRESS),
+        .END_ADDRESS      (MEM_END_ADDRESS)
     ) data_sram (
         .clk              (clk),
-        .address_i        (data_mem_addr_o),
+        .address_1_i      (data_mem_addr_o),
+        .address_2_i      (pc_o),
         .data_i           (data_mem_data_o),
         .we_i             (data_mem_we_o),
-        .data_o           (data_mem_data_i)
+        .data_1_o         (data_mem_data_i),
+        .data_2_o         (inst_i)
     );
 endmodule
