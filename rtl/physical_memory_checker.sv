@@ -20,7 +20,7 @@ module physical_memory_checker (
 );
     logic [XLEN-1:0] access_addresses [0:7];
     /* verilator lint_off ASCRANGE */
-    pma_cfg_t [0:2] pma_cfgs;
+    pma_cfg_t [0:PMA_ENTRY_COUNT-1] pma_cfgs;
     /* verilator lint_on ASCRANGE */
 
     logic access_pmp_matched, pc_pmp_matched, all_access_bytes, all_pc_bytes,
@@ -44,22 +44,38 @@ module physical_memory_checker (
         pma_cfgs[0].main = 1'b1;
         pma_cfgs[0].writable = 1'b1;
         pma_cfgs[0].readable = 1'b1;
+        pma_cfgs[0].alignment = UNALIGNED;
 
         pma_cfgs[1].addr_low = MEM_END_ADDRESS + 1'b1;
-        pma_cfgs[1].addr_high = {PHYS_ADDR_WIDTH{1'b1}};
+        pma_cfgs[1].addr_high = MTIME_ADDR - 1;
         pma_cfgs[1].main = 1'b0;
         pma_cfgs[1].writable = 1'b0;
         pma_cfgs[1].readable = 1'b0;
+        pma_cfgs[1].alignment = UNALIGNED;
+
+        pma_cfgs[2].addr_low = MTIME_ADDR;
+        pma_cfgs[2].addr_high = MTIMECMP_ADDR + 7;
+        pma_cfgs[2].main = 1'b0;
+        pma_cfgs[2].writable = 1'b1;
+        pma_cfgs[2].readable = 1'b1;
+        pma_cfgs[2].alignment = DOUBLE_ALIGNED;
+
+        pma_cfgs[3].addr_low = MTIMECMP_ADDR + 8;
+        pma_cfgs[3].addr_high = {PHYS_ADDR_WIDTH{1'b1}};
+        pma_cfgs[3].main = 1'b0;
+        pma_cfgs[3].writable = 1'b0;
+        pma_cfgs[3].readable = 1'b0;
+        pma_cfgs[3].alignment = UNALIGNED;
     end
 
     function automatic pma_cfg_t pma_cfg_for_addr(input logic [XLEN-1:0] address);
         pma_cfg_t cfg;
         begin
-            cfg = pma_cfgs[2];
-            if (address >= pma_cfgs[0].addr_low && address <= pma_cfgs[0].addr_high)
-                cfg = pma_cfgs[0];
-            else if (address >= pma_cfgs[1].addr_low && address <= pma_cfgs[1].addr_high)
-                cfg = pma_cfgs[1];
+            cfg = pma_cfgs[PMA_ENTRY_COUNT-1];
+            for (int i = 0; i < PMA_ENTRY_COUNT; i++) begin
+                if (address >= pma_cfgs[i].addr_low && address <= pma_cfgs[i].addr_high)
+                    cfg = pma_cfgs[i];
+            end
             pma_cfg_for_addr = cfg;
         end
     endfunction
@@ -79,6 +95,15 @@ module physical_memory_checker (
             pma_writable = cfg.writable;
         end
     endfunction
+
+    function automatic alignment_t pma_alignment(input logic [XLEN-1:0] address);
+        pma_cfg_t cfg;
+        begin
+            cfg = pma_cfg_for_addr(address);
+            pma_alignment = cfg.alignment;
+        end
+    endfunction
+
 
     function automatic logic pma_main(input logic [XLEN-1:0] address);
         pma_cfg_t cfg;
@@ -197,6 +222,25 @@ module physical_memory_checker (
                 end
             end
         end
+
+        case (pma_alignment(access_addresses[0]))
+            UNALIGNED : ;
+            // To check an access is double aligned, we have the condition that a memory read is
+            // double aligned IFF the first byte's addr[2:0] == 0. The access must also be MEM_DOUBLE
+            DOUBLE_ALIGNED : begin
+                if (access_addresses[0][2:0] != 3'b0 || access_width != 8) begin
+                    if (ctrl_i.mem_read) begin
+                        pma_read_exception_o = '1;
+                        pma_faulting_addr_o = access_addresses[0];
+                    end
+                    if (ctrl_i.mem_write) begin
+                        pma_write_exception_o = '1;
+                        pma_faulting_addr_o = access_addresses[0];
+                    end
+                end
+            end
+            default : ;
+        endcase
 
         pma_instruction_fetch_exception_o = '0;
         for (int i = 3; i >= 0; i--) begin

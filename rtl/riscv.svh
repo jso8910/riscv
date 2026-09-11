@@ -11,8 +11,33 @@ package riscv;
     localparam logic [REG_ADDR_W-1:0] X0 = 5'd0;
 
     localparam logic [XLEN-1:0] RESET_PC           = 32'd0;
-    localparam logic [XLEN-1:0] MEM_START_ADDRESS = 'h00_00_00_00;
-    localparam logic [XLEN-1:0] MEM_END_ADDRESS   = 'h00_1f_ff_ff;
+    localparam logic [PHYS_ADDR_WIDTH-1:0] MEM_START_ADDRESS = 'h00_00_00_00;
+    localparam logic [PHYS_ADDR_WIDTH-1:0] MEM_END_ADDRESS   = 'h00_1f_ff_ff;
+    localparam logic [PHYS_ADDR_WIDTH-1:0] MTIME_ADDR   = 'h10_00_00_00_00_00_00;
+    localparam logic [PHYS_ADDR_WIDTH-1:0] MTIMECMP_ADDR   = 'h10_00_00_00_00_00_08;
+
+    localparam int TLB_SIZE = 16;
+    localparam int PTE_LEVELS = 3;
+    localparam logic [XLEN-1:0] PTESIZE = 8;
+    localparam logic [XLEN-1:0] PAGESIZE = 1 << 12;  // 4 KiB pages
+
+    // satp fields
+    localparam int SATP_MODE_MSB = 63;
+    localparam int SATP_MODE_LSB = 60;
+    localparam int SATP_ASID_MSB = 59;
+    localparam int SATP_ASID_LSB = 44;
+    localparam int SATP_PPN_MSB = 43;
+    localparam int SATP_PPN_LSB = 0;
+
+    // pte (page table entry) fields
+    localparam int PTE_D = 7;
+    localparam int PTE_A = 6;
+    localparam int PTE_G = 5;
+    localparam int PTE_U = 4;
+    localparam int PTE_X = 3;
+    localparam int PTE_W = 2;
+    localparam int PTE_R = 1;
+    localparam int PTE_V = 0;
 
     typedef logic [XLEN-1:0] uintxlen_t;
 
@@ -28,6 +53,65 @@ package riscv;
 
     localparam machine_privilege_t IMPLEMENTED_PRIVILEGE = M_MODE;
 
+    // ============
+    // Memory stuff
+    // ============
+    typedef struct packed {
+        // a VPN is 27 bits - 3x9
+        logic [26:0] vpn;
+        logic [15:0] asid;
+        logic [2:0] leaf_level;
+
+        logic [43:0] ppn;
+        logic accessed;
+        logic dirty;
+        logic global_mapping;
+        logic user;
+        logic execute;
+        logic write;
+        logic read;
+        logic valid;
+    } tlb_entry_t;
+
+    typedef enum logic [1:0] {
+        MREAD,  // read
+        MWRITE, // write
+        MFETCH, // instruction fetch
+        PTW_READ    // should not be set for input to TLB, only to physical memory checker
+    } mem_op_t;
+
+    typedef enum logic [2:0] {
+        MEM_NONE,
+        MEM_BYTE,
+        MEM_HALF,
+        MEM_WORD,
+        MEM_DOUBLE
+    } mem_size_t;
+
+    typedef enum logic [3:0] {
+        PMA_FETCH,
+        PMA_WRITE,
+        PMA_READ,
+        PMP_FETCH,
+        PMP_WRITE,
+        PMP_READ
+    } mem_fault_t;
+
+    typedef struct packed {
+        logic valid;
+        logic [XLEN-1:0] address;
+        mem_size_t size;
+        mem_op_t kind;
+        machine_privilege_t effective_privilege;
+    } mem_req_t;
+
+    typedef struct packed {
+        logic valid;
+        logic [XLEN-1:0] data;
+        mem_fault_t fault;
+        logic [XLEN-1:0] fault_addr;
+    } mem_res_t;
+
     // ================
     // Trap vector mode
     // ================
@@ -40,6 +124,7 @@ package riscv;
     // Physical memory protection
     // ==========================
     localparam int PMP_ENTRY_COUNT = 64;
+    localparam int PMA_ENTRY_COUNT = 4;
     localparam int PMP_ADDR_WIDTH = PHYS_ADDR_WIDTH - 2;
 
     localparam int PMPCFG_L_IDX = 7;
@@ -66,20 +151,49 @@ package riscv;
     // ==============
     localparam int MSTATUS_MPP_MSB = 12;
     localparam int MSTATUS_MPP_LSB = 11;
+    localparam int MSTATUS_SIE = 1;
     localparam int MSTATUS_MIE = 3;
+    localparam int MSTATUS_SPIE = 5;
     localparam int MSTATUS_MPIE = 7;
+    localparam int MSTATUS_SPP = 8;
     localparam int MSTATUS_MPRV = 17;
+    localparam int MSTATUS_SUM = 18;
+    localparam int MSTATUS_MXR = 19;
 
     // ========
     // counters
     // ========
-    localparam int MCOUNTINHIBIT_CY = 0;
-    localparam int MCOUNTINHIBIT_IR = 2;
+    localparam int COUNT_CY = 0;
+    localparam int COUNT_TM = 1;
+    localparam int COUNT_IR = 2;
 
     // ======================
     // CSR register addresses
     // ======================
     localparam logic [1:0] CSR_READ_ONLY = 2'b11;
+
+    // # Supervisor-level CSRs
+    // ### Supervisor trap setup
+    localparam logic [11:0] SSTATUS      = 'h100;
+    localparam logic [11:0] SIE          = 'h104;
+    localparam logic [11:0] STVEC        = 'h105;
+    localparam logic [11:0] SCOUNTEREN   = 'h106;
+
+    // ### Supervisor configuration
+    localparam logic [11:0] SENVCFG      = 'h10A;
+
+    // ### Supervisor trap handling
+    localparam logic [11:0] SSCRATCH     = 'h140;
+    localparam logic [11:0] SEPC         = 'h141;
+    localparam logic [11:0] SCAUSE       = 'h142;
+    localparam logic [11:0] STVAL        = 'h143;
+    localparam logic [11:0] SIP          = 'h144;
+
+    // ### Supervisor protection and translation
+    localparam logic [11:0] SATP         = 'h180;
+
+    // ### Supervisor timer compare --- Sstc
+    localparam logic [11:0] STIMECMP     = 'h14D;
 
     // # Machine-level CSRs
     // ## Machine read only
@@ -94,12 +208,11 @@ package riscv;
     // ### Machine trap setup
     localparam logic [11:0] MSTATUS        = 'h300;
     localparam logic [11:0] MISA           = 'h301;
-    // TODO: implement once S-mode is added
-    // localparam logic [11:0] MEDELEG        = 'h302;
-    // localparam logic [11:0] MIDELEG        = 'h303;
+    localparam logic [11:0] MEDELEG        = 'h302;
+    localparam logic [11:0] MIDELEG        = 'h303;
     localparam logic [11:0] MIE            = 'h304;
     localparam logic [11:0] MTVEC          = 'h305;
-    // localparam logic [11:0] MCOUNTEREN     = 'h306;  TODO
+    localparam logic [11:0] MCOUNTEREN     = 'h306;
 
     // ### Machine trap handling
     localparam logic [11:0] MSCRATCH       = 'h340;
@@ -131,7 +244,10 @@ package riscv;
     // ### User counter/timers
     // Read-only views of the machine cycle and instruction-retired counters.
     localparam logic [11:0] CYCLE          = 'hC00;
+    localparam logic [11:0] TIME           = 'hC01;
     localparam logic [11:0] INSTRET        = 'hC02;
+    localparam logic [11:0] HPMCOUNTER3    = 'hC04;
+    localparam logic [11:0] HPMCOUNTER31   = 'hC1F;
 
     // ### Machine counter setup
     localparam logic [11:0] MCOUNTINHIBIT  = 'h320;
@@ -146,29 +262,43 @@ package riscv;
     // For any CSR that has a non-zero default value, its default value is (and is explained) here.
     // MISA: 63:62 => XLEN = 64
     //       61:26 => static value (all 0s)
-    //       25:0  => extensions (bit 8 is set, base ISA I)
-    localparam logic [XLEN-1:0] MISA_VAL     = (XLEN'(2) << (XLEN - 2)) | (XLEN'(1) << 8);
+    //       25:0  => extensions (I, S, and U are implemented)
+    localparam int MISA_EXT_I = 8;
+    localparam int MISA_EXT_S = 18;
+    localparam int MISA_EXT_U = 20;
+    localparam logic [XLEN-1:0] MISA_VAL     = (XLEN'(2) << (XLEN - 2))
+                                               | (XLEN'(1) << MISA_EXT_I)
+                                               | (XLEN'(1) << MISA_EXT_S)
+                                               | (XLEN'(1) << MISA_EXT_U);
 
     // mstatus: all 0s, but MPP is reset to equal M (11) so an MRET before the first TRAP
     // doesn't drop the mode to user.
     localparam logic [XLEN-1:0] MSTATUS_VAL  = 'h0000_1800;
     localparam logic [XLEN-1:0] MSTATUSH_VAL = 'h0;
-    // The only bits of mstatus which can be changed in this current machine mode
-    // implementation are
-    //  - 17    - MPRV // not yet
-    //  - 12:11 - MPP, must be set to a legal privilege mode. Technically for now only M,
-    //    but will implement all of M, S, and U
-    //  - 7     - MPIE
-    //  - 5     - SPIE // not yet
-    //  - 3     - MIE
-    //  - 1     - SIE // not yet
-    // All other bits are kept the same (generally 0)
-    localparam logic [XLEN-1:0] MSTATUS_WRITE_MASK_VAL = (1 <<MSTATUS_MPP_MSB) | (1 << MSTATUS_MPP_LSB) | (1 << MSTATUS_MPIE) | (1 << MSTATUS_MIE);
-    // No bits in mstatush can be written in this implementation
-    localparam logic [XLEN-1:0] MSTATUSH_WRITE_MASK_VAL = 'h00_00_00_00;
+    // Writable mstatus bits modeled by this core.  MPP supports M, S, and U;
+    // the reserved encoding is legalized to M.
+    // TODO: Add SUM (18) and MXR (19) when page translation is implemented.
+    // SUM permits S-mode loads/stores to U pages; MXR permits loads from
+    // execute-only pages.
+    // TODO: Add TVM (20), TW (21), and TSR (22) when enforcing M-mode
+    // restrictions on S-mode. TVM restricts satp/SFENCE.VMA, TW restricts
+    // WFI below M-mode, and TSR restricts SRET in S-mode.
+    localparam logic [XLEN-1:0] MSTATUS_WRITE_MASK_VAL = (XLEN'(1) << MSTATUS_MPP_MSB)
+                                                        | (XLEN'(1) << MSTATUS_MPP_LSB)
+                                                        | (XLEN'(1) << MSTATUS_MPRV)
+                                                        | (XLEN'(1) << MSTATUS_MPIE)
+                                                        | (XLEN'(1) << MSTATUS_SPP)
+                                                        | (XLEN'(1) << MSTATUS_SPIE)
+                                                        | (XLEN'(1) << MSTATUS_MIE)
+                                                        | (XLEN'(1) << MSTATUS_SIE);
 
     // mtvec will, by default, have the base address as RESET_PC
     localparam logic [XLEN-1:0] MVEC_VAL = {RESET_PC[XLEN-1:2], TRAP_DIRECT};
+
+    // Bits of mstatus exposed by the currently modeled portion of sstatus.
+    localparam logic [XLEN-1:0] SSTATUS_MASK = (XLEN'(1) << MSTATUS_SIE)
+                                               | (XLEN'(1) << MSTATUS_SPIE)
+                                               | (XLEN'(1) << MSTATUS_SPP);
 
 
     // ======================
@@ -263,6 +393,7 @@ package riscv;
     localparam logic [31:0] ECALL  = 32'b000000000000_00000_000_00000_1110011;
     localparam logic [31:0] EBREAK = 32'b000000000001_00000_000_00000_1110011;
     localparam logic [31:0] MRET   = 32'h3020_0073;
+    localparam logic [31:0] SRET   = 32'h1020_0073;
     localparam logic [31:0] WFI    = 32'h1050_0073;
     // todo: not implemented yet
     // localparam logic [31:0] SRET   = 32'h;
@@ -315,14 +446,6 @@ package riscv;
         WB_CSR                  // CSR value
     } wb_sel_t;
 
-    typedef enum logic [2:0] {
-        MEM_NONE,
-        MEM_BYTE,
-        MEM_HALF,
-        MEM_WORD,
-        MEM_DOUBLE
-    } mem_size_t;
-
     typedef enum logic {
         MEM_UNSIGNED,
         MEM_SIGNED
@@ -343,9 +466,10 @@ package riscv;
         PC
     } op1_src_t;
 
-    typedef enum logic {
+    typedef enum logic [1:0] {
         SRC_ALU,
-        SRC_MEPC
+        SRC_MEPC,
+        SRC_SEPC
     } branch_src_t;
 
     typedef enum logic [1:0] {
@@ -390,6 +514,7 @@ package riscv;
         logic                  ebreak;
         logic                  ecall;
         logic                  mret;
+        logic                  sret;
 
         logic                  illegal;
     } ctrl_t;
@@ -427,14 +552,50 @@ package riscv;
         HARDWARE_ERROR = 'd19
     } trap_exception_cause_t;
 
+    // Interrupt and delegation masks are defined from their architectural
+    // cause numbers so they remain correct if XLEN or the implemented set
+    // changes.  This core exposes all six standard interrupt-enable and
+    // delegation bits, and the standard exceptions that can originate below
+    // M-mode.
+    localparam logic [XLEN-1:0] STANDARD_INTERRUPT_MASK = (XLEN'(1) << S_SOFTWARE)
+                                                         | (XLEN'(1) << M_SOFTWARE)
+                                                         | (XLEN'(1) << S_TIMER)
+                                                         | (XLEN'(1) << M_TIMER)
+                                                         | (XLEN'(1) << S_EXTERNAL)
+                                                         | (XLEN'(1) << M_EXTERNAL);
+    // Machine interrupts are NOT delegatable
+    localparam logic [XLEN-1:0] SUPERVISOR_INTERRUPT_MASK = (XLEN'(1) << S_SOFTWARE)
+                                                         | (XLEN'(1) << S_TIMER)
+                                                         | (XLEN'(1) << S_EXTERNAL);
+    localparam logic [XLEN-1:0] MIP_WRITABLE_MASK = (XLEN'(1) << S_SOFTWARE)
+                                                    | (XLEN'(1) << S_EXTERNAL);
+    localparam logic [XLEN-1:0] MEDELEG_WRITABLE_MASK = (XLEN'(1) << INST_ADDR_MISALIGNED)
+                                                        | (XLEN'(1) << INST_ACCESS_FAULT)
+                                                        | (XLEN'(1) << ILLEGAL_INSTRUCTION)
+                                                        | (XLEN'(1) << BREAKPOINT)
+                                                        | (XLEN'(1) << LOAD_ADDRESS_MISALIGNED)
+                                                        | (XLEN'(1) << LOAD_ACCESS_FAULT)
+                                                        | (XLEN'(1) << STORE_ADDRESS_MISALIGNED)
+                                                        | (XLEN'(1) << STORE_ACCESS_FAULT)
+                                                        | (XLEN'(1) << ECALL_FROM_U_MODE)
+                                                        | (XLEN'(1) << INSTRUCTION_PAGE_FAULT)
+                                                        | (XLEN'(1) << LOAD_PAGE_FAULT)
+                                                        | (XLEN'(1) << STORE_PAGE_FAULT);
+
     typedef struct packed {
         logic                  is_trap;
         logic                  is_interrupt;
         trap_interrupt_cause_t interrupt_cause;
         trap_exception_cause_t exception_cause;
+        machine_privilege_t    dest_machine_privilege;
         logic [XLEN-1:0]       pc;
         logic [XLEN-1:0]       tval;
     } trap_t;
+
+    typedef enum logic {
+        UNALIGNED,
+        DOUBLE_ALIGNED
+    } alignment_t;
 
     // ===========================
     // Physical memory attribution
@@ -445,6 +606,7 @@ package riscv;
         logic        main;          // High if part of main memory, low if MMIO (ie should not be executable)
         logic        writable;
         logic        readable;
+        alignment_t  alignment;
         // logic        bufferable; // relevant for future
         // logic        cacheable;
         // logic        atomic;

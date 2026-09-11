@@ -5,11 +5,13 @@ module riscv_core (
     input logic                 rst_n,
     input logic [IALIGN-1:0]    inst_i,
     input logic [WWIDTH-1:0]    data_mem_data_i,
+    input logic [XLEN-1:0]      time_i,
 
     output logic [XLEN-1:0]     pc_o,
     output logic [WWIDTH/8-1:0] data_mem_we_o,
     output logic [XLEN-1:0]     data_mem_addr_o,
-    output logic [WWIDTH-1:0]   data_mem_data_o
+    output logic [WWIDTH-1:0]   data_mem_data_o,
+    output logic                mtime_we_o
 );
     // ================
     // Wire definitions
@@ -19,11 +21,13 @@ module riscv_core (
     machine_privilege_t machine_privilege;
     logic [XLEN-1:0] next_pc, rs1_data, rs2_data, csr_val,
                      alu_res, imm, mem_content, op1, mepc, mtvec,
-                     pma_faulting_addr, pmp_faulting_addr, mstatus;
+                     pma_faulting_addr, pmp_faulting_addr, mstatus,
+                     stimecmp, mip, mie, sie, medeleg, mideleg,
+                     mtimecmp, sip, stvec, sepc;
     logic csr_illegal_inst, commit, retire_count, cycle_tick, address_misaligned,
           pma_instruction_fetch_exception, pma_write_exception, pma_read_exception,
           memory_checker_hardware_fault, hardware_fault, pmp_write_exception, pmp_read_exception,
-          pmp_instruction_fetch_exception;
+          pmp_instruction_fetch_exception, mtimecmp_we, mtip, stip, ptw_stall, stall;
 
     logic [7:0]      pmp_cfg [0:63];
     logic [XLEN-1:0] pmp_addr [0:63];
@@ -31,10 +35,9 @@ module riscv_core (
     // ===========
     // Assignments
     // ===========
-    assign data_mem_addr_o = alu_res;
     assign data_mem_data_o = rs2_data;
     // suppress side effects on trap
-    assign commit = ~trap.is_trap;
+    assign commit = ~trap.is_trap & ~ptw_stall;
     assign cycle_tick = '1;
     assign retire_count = commit;
 
@@ -65,6 +68,8 @@ module riscv_core (
         .alu_res_i     (alu_res),
         .mepc_i        (mepc),
         .mtvec_i       (mtvec),
+        .sepc_i        (sepc),
+        .stvec_i       (stvec),
         .trap_i        (trap),
         .next_pc_o     (next_pc),
         .address_misaligned_o (address_misaligned)
@@ -99,9 +104,28 @@ module riscv_core (
         .pmp_write_exception_i(pmp_write_exception),
         .pmp_faulting_addr_i(pmp_faulting_addr),
 
+        .mip_i               (mip),
+        .mie_i               (mie),
+        .sip_i               (sip),
+        .sie_i               (sie),
+        .mstatus_i           (mstatus),
+        .mideleg_i           (mideleg),
+        .medeleg_i           (medeleg),
         .current_privilege_i (machine_privilege),
         .pc_i                (pc_o),
         .trap_o              (trap)
+    );
+
+    timer_interrupt u_timer_interrupt (
+        .clk          (clk),
+        .rst_n        (rst_n),
+        .time_i       (time_i),
+        .mtimecmp_i   (data_mem_data_o),
+        .mtimecmp_we_i(mtimecmp_we),
+        .stimecmp_i   (stimecmp),
+        .mtip_o       (mtip),
+        .stip_o       (stip),
+        .mtimecmp_o   (mtimecmp)
     );
 
     // =============
@@ -150,16 +174,29 @@ module riscv_core (
         .clk                (clk),
         .rst_n              (rst_n),
         .ctrl_i             (ctrl),
+        .commit_i           (commit),
         .cycle_tick_i       (cycle_tick),
         .retire_count_i     (retire_count),
         .rs1_i              (rs1_data),
         .trap_i             (trap),
+        .mtip_i             (mtip),
+        .stip_i             (stip),
+        .time_i             (time_i),
         .csr_val_o          (csr_val),
         .mepc_o             (mepc),
         .mtvec_o            (mtvec),
+        .sepc_o             (sepc),
+        .stvec_o            (stvec),
         .mstatus_o          (mstatus),
+        .stimecmp_o         (stimecmp),
         .pmp_cfg_o          (pmp_cfg),
         .pmp_addr_o         (pmp_addr),
+        .mip_o              (mip),
+        .mie_o              (mie),
+        .sip_o              (sip),
+        .sie_o              (sie),
+        .medeleg_o          (medeleg),
+        .mideleg_o          (mideleg),
         .csr_illegal_inst_o (csr_illegal_inst),
         .machine_privilege_o(machine_privilege)
     );
@@ -169,10 +206,18 @@ module riscv_core (
     // =================
     memory_controller u_memory_controller (
         .data_i    (data_mem_data_i),
+        .current_privilege_i(machine_privilege),
+        .mtime_i   (time_i),
+        .mtimecmp_i(mtimecmp),
+        .addr_i    (alu_res),
         .ctrl_i    (ctrl),
         .commit_i  (commit),
         .data_o    (mem_content),
-        .we_o      (data_mem_we_o)
+        .we_o      (data_mem_we_o),
+        .mtime_we_o(mtime_we_o),
+        .mtimecmp_we_o(mtimecmp_we),
+        .phys_addr_o(data_mem_addr_o),
+        .ptw_stall_o(ptw_stall)
     );
 
     physical_memory_checker u_physical_memory_checker (
@@ -195,7 +240,9 @@ module riscv_core (
     );
 endmodule
 
-module riscv_system (
+module riscv_system #(
+    parameter logic [PHYS_ADDR_WIDTH-1:0] SRAM_END_ADDRESS = MEM_END_ADDRESS
+) (
     input logic clk,
     input logic rst_n
 );
@@ -204,8 +251,21 @@ module riscv_system (
     logic [WWIDTH-1:0] data_mem_data_i, data_mem_data_o, data_mem_2;
     logic [XLEN-1:0] pc_o, data_mem_addr_o;
     logic [WWIDTH/8-1:0] data_mem_we_o;
+    logic [XLEN-1:0] mtime;
+    logic mtime_we;
 
     assign inst_i = data_mem_2[31:0];
+
+    // Simple platform timer.  It advances with the core clock and can be set
+    // through a store to the MTIME MMIO register.
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            mtime <= '0;
+        else if (mtime_we)
+            mtime <= data_mem_data_o;
+        else
+            mtime <= mtime + XLEN'(1);
+    end
 
     // CPU core
     riscv_core u_riscv_core (
@@ -213,10 +273,12 @@ module riscv_system (
         .rst_n              (rst_n),
         .inst_i             (inst_i),
         .data_mem_data_i    (data_mem_data_i),
+        .time_i              (mtime),
         .pc_o               (pc_o),
         .data_mem_we_o      (data_mem_we_o),
         .data_mem_addr_o    (data_mem_addr_o),
-        .data_mem_data_o    (data_mem_data_o)
+        .data_mem_data_o    (data_mem_data_o),
+        .mtime_we_o         (mtime_we)
     );
 
     // All memory, from the start of IMEM to end of DMEM.
@@ -225,7 +287,7 @@ module riscv_system (
         .NUM_BYTES        (WWIDTH/8),
         .AWIDTH           (PHYS_ADDR_WIDTH),
         .START_ADDRESS    (MEM_START_ADDRESS[PHYS_ADDR_WIDTH-1:0]),
-        .END_ADDRESS      (MEM_END_ADDRESS[PHYS_ADDR_WIDTH-1:0])
+        .END_ADDRESS      (SRAM_END_ADDRESS)
     ) data_sram (
         .clk              (clk),
         .address_1_i      (data_mem_addr_o[PHYS_ADDR_WIDTH-1:0]),

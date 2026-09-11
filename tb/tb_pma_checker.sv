@@ -279,6 +279,25 @@ module tb_pma_checker;
                    MEM_END_ADDRESS + 1, 1'b0, 1'b1);
         check_data("word crossing out of main memory is denied", 1'b1, 1'b0, MEM_WORD,
                    MEM_END_ADDRESS - 1, 1'b1, 1'b0);
+        check_fetch("timer MMIO is not executable", MTIME_ADDR, 1'b1);
+        check_data("timer MMIO read is allowed", 1'b1, 1'b0, MEM_DOUBLE,
+                   MTIME_ADDR, 1'b0, 1'b0);
+        check_data("timer compare MMIO write is allowed", 1'b0, 1'b1, MEM_DOUBLE,
+                   MTIMECMP_ADDR, 1'b0, 1'b0);
+        check_faulting_addr("misaligned timer doubleword load is denied", 1'b1, 1'b0, MEM_DOUBLE,
+                            MEM_START_ADDRESS, MTIME_ADDR + 1,
+                            1'b0, 1'b1, 1'b0, MTIME_ADDR + 1);
+        check_faulting_addr("misaligned timer doubleword store is denied", 1'b0, 1'b1, MEM_DOUBLE,
+                            MEM_START_ADDRESS, MTIME_ADDR + 1,
+                            1'b0, 1'b0, 1'b1, MTIME_ADDR + 1);
+        check_faulting_addr("timer byte load is denied", 1'b1, 1'b0, MEM_BYTE,
+                            MEM_START_ADDRESS, MTIME_ADDR,
+                            1'b0, 1'b1, 1'b0, MTIME_ADDR);
+        check_faulting_addr("timer byte store is denied", 1'b0, 1'b1, MEM_BYTE,
+                            MEM_START_ADDRESS, MTIME_ADDR,
+                            1'b0, 1'b0, 1'b1, MTIME_ADDR);
+        check_data("memory after timer MMIO is unallocated", 1'b1, 1'b0, MEM_BYTE,
+                   MTIMECMP_ADDR + 8, 1'b1, 1'b0);
 
         check_faulting_addr("load selects the lowest failing byte", 1'b1, 1'b0, MEM_WORD,
                             MEM_START_ADDRESS, MEM_END_ADDRESS - 1,

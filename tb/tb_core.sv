@@ -10,11 +10,14 @@ module tb_core;
     localparam int SC_INVALID_ST   = 4;
     localparam int SC_INVALID_ALU  = 5;
     localparam int SC_TRAP_MRET    = 6;
+    localparam int SC_TIMER_INTERRUPT = 7;
+    localparam int SC_SUPERVISOR_TRAP = 8;
 
     logic clk = 1'b0;
     logic rst_n = 1'b0;
     logic [IALIGN-1:0] inst = 32'h0000_0013;
     logic [WWIDTH-1:0] data_mem_data = '0;
+    logic [XLEN-1:0] time_i = '0;
     logic [XLEN-1:0] pc;
     logic [WWIDTH/8-1:0] data_mem_we;
     logic [XLEN-1:0] data_mem_addr;
@@ -28,6 +31,7 @@ module tb_core;
         .rst_n(rst_n),
         .inst_i(inst),
         .data_mem_data_i(data_mem_data),
+        .time_i(time_i),
         .pc_o(pc),
         .data_mem_we_o(data_mem_we),
         .data_mem_addr_o(data_mem_addr),
@@ -122,6 +126,46 @@ module tb_core;
                     default: ;
                 endcase
             end
+            SC_TIMER_INTERRUPT: begin
+                // x1 = MTIMECMP_ADDR, x2 = 20.  Program the compare before
+                // enabling MTIE/MIE so no timer interrupt can preempt setup.
+                case (address)
+                    RESET_PC:      instruction_at = i_inst(12'd1, X0, ADD_SUB, 5'd1, OP_IMM);
+                    RESET_PC + 4:  instruction_at = i_inst(12'd52, 5'd1, SLL, 5'd1, OP_IMM);
+                    RESET_PC + 8:  instruction_at = i_inst(12'd8, 5'd1, ADD_SUB, 5'd1, OP_IMM);
+                    RESET_PC + 12: instruction_at = i_inst(12'd20, X0, ADD_SUB, 5'd2, OP_IMM);
+                    RESET_PC + 16: instruction_at = s_inst('0, 5'd2, 5'd1, SD);
+                    RESET_PC + 20: instruction_at = i_inst(12'd128, X0, ADD_SUB, 5'd2, OP_IMM);
+                    RESET_PC + 24: instruction_at = csr_inst(MIE, 5'd2, CSRRW, X0);
+                    RESET_PC + 28: instruction_at = csr_inst(MSTATUS, 5'd8, CSRRWI, X0);
+                    default: ;
+                endcase
+            end
+            SC_SUPERVISOR_TRAP: begin
+                // Configure an S-mode trap vector and delegate breakpoint,
+                // then use MRET to enter S-mode.  The S-mode EBREAK must
+                // enter the S handler, and SRET must return through sepc.
+                case (address)
+                    RESET_PC:      instruction_at = i_inst(12'd128, X0, ADD_SUB, 5'd1, OP_IMM);
+                    RESET_PC + 4:  instruction_at = csr_inst(STVEC, 5'd1, CSRRW, X0);
+                    RESET_PC + 8:  instruction_at = csr_inst(MEDELEG, 5'd8, CSRRWI, X0);
+                    RESET_PC + 12: instruction_at = i_inst(12'd1, X0, ADD_SUB, 5'd2, OP_IMM);
+                    RESET_PC + 16: instruction_at = i_inst(12'd11, 5'd2, SLL, 5'd2, OP_IMM);
+                    RESET_PC + 20: instruction_at = csr_inst(MSTATUS, 5'd2, CSRRW, X0);
+                    // Lower-privilege accesses are denied until PMP grants
+                    // them, so allow the complete physical range with a
+                    // NAPOT RWX entry before entering S-mode.
+                    RESET_PC + 24: instruction_at = i_inst(-12'sd1, X0, ADD_SUB, 5'd4, OP_IMM);
+                    RESET_PC + 28: instruction_at = csr_inst(PMPADDR0, 5'd4, CSRRW, X0);
+                    RESET_PC + 32: instruction_at = csr_inst(PMPCFG0, 5'd31, CSRRWI, X0);
+                    RESET_PC + 36: instruction_at = i_inst(12'd64, X0, ADD_SUB, 5'd3, OP_IMM);
+                    RESET_PC + 40: instruction_at = csr_inst(MEPC, 5'd3, CSRRW, X0);
+                    RESET_PC + 44: instruction_at = MRET;
+                    32'h0000_0040: instruction_at = EBREAK;
+                    32'h0000_0080: instruction_at = SRET;
+                    default: ;
+                endcase
+            end
             default: ;
         endcase
     endfunction
@@ -143,6 +187,7 @@ module tb_core;
         begin
             scenario = selected_scenario;
             inst = instruction_at(selected_scenario, RESET_PC);
+            time_i = '0;
             rst_n = 1'b0;
             #1;
             @(posedge clk);
@@ -246,8 +291,38 @@ module tb_core;
         check("MRET returns to mepc", pc == RESET_PC + 12);
         check("MRET restores MIE", dut.u_csrfile.mstatus[MSTATUS_MIE]);
         check("MRET sets MPIE", dut.u_csrfile.mstatus[MSTATUS_MPIE]);
-        check("MRET restores MPP to M for this M-only core",
-              dut.u_csrfile.mstatus[MSTATUS_MPP_MSB:MSTATUS_MPP_LSB] == M_MODE);
+        check("MRET restores MPP to U",
+              dut.u_csrfile.mstatus[MSTATUS_MPP_MSB:MSTATUS_MPP_LSB] == U_MODE);
+
+        reset_core(SC_TIMER_INTERRUPT);
+        repeat (8) step();
+        check("timer firmware builds the MTIMECMP address", dut.u_regfile.regs[1] == MTIMECMP_ADDR);
+        check("timer firmware programs MTIMECMP", dut.mtimecmp == 64'd20);
+        check("timer firmware enables MTIE", dut.u_csrfile.mie[M_TIMER]);
+        check("timer firmware enables MIE", dut.u_csrfile.mstatus[MSTATUS_MIE]);
+        time_i = 64'd20;
+        step();
+        check("timer firmware redirects to mtvec", pc == RESET_PC);
+        check("timer firmware records machine timer mcause",
+              dut.u_csrfile.mcause == {1'b1, M_TIMER});
+        check("timer firmware records interrupted PC", dut.u_csrfile.mepc == RESET_PC + 32);
+        check("timer firmware disables MIE on trap entry", !dut.u_csrfile.mstatus[MSTATUS_MIE]);
+
+        reset_core(SC_SUPERVISOR_TRAP);
+        repeat (12) step();
+        check("MRET enters S-mode", dut.u_csrfile.machine_privilege == S_MODE);
+        check("MRET starts S-mode at mepc", pc == 32'h0000_0040);
+        step();
+        check("delegated S breakpoint redirects to stvec", pc == 32'h0000_0080);
+        check("delegated S breakpoint writes sepc", dut.u_csrfile.sepc == 32'h0000_0040);
+        check("delegated S breakpoint writes scause", dut.u_csrfile.scause == XLEN'(BREAKPOINT));
+        check("S trap records prior S privilege in SPP", dut.u_csrfile.mstatus[MSTATUS_SPP]);
+        check("S trap clears SIE", !dut.u_csrfile.mstatus[MSTATUS_SIE]);
+        step();
+        check("SRET returns through sepc", pc == 32'h0000_0040);
+        check("SRET restores S privilege", dut.u_csrfile.machine_privilege == S_MODE);
+        check("SRET clears SPP", !dut.u_csrfile.mstatus[MSTATUS_SPP]);
+        check("SRET sets SPIE", dut.u_csrfile.mstatus[MSTATUS_SPIE]);
 
         if (tests_failed == 0) begin
             $display("tb_core: all %0d checks passed", tests_run);

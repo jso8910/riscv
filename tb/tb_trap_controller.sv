@@ -11,6 +11,12 @@ module tb_trap_controller;
     logic pma_write_fault;
     logic pma_read_fault;
     logic [XLEN-1:0] pma_faulting_addr;
+    logic [XLEN-1:0] mip;
+    logic [XLEN-1:0] mie;
+    logic [XLEN-1:0] sie;
+    logic [XLEN-1:0] mstatus;
+    logic [XLEN-1:0] mideleg;
+    logic [XLEN-1:0] medeleg;
     machine_privilege_t privilege;
     logic [XLEN-1:0] pc;
     trap_t trap;
@@ -25,6 +31,12 @@ module tb_trap_controller;
         .pma_instruction_fetch_exception_i(pma_fetch_fault),
         .pma_write_exception_i(pma_write_fault),
         .pma_read_exception_i(pma_read_fault),
+        .mip_i(mip),
+        .mie_i(mie),
+        .sie_i(sie),
+        .mstatus_i(mstatus),
+        .mideleg_i(mideleg),
+        .medeleg_i(medeleg),
         .current_privilege_i(privilege),
         .pma_faulting_addr_i(pma_faulting_addr),
         .pc_i(pc),
@@ -44,6 +56,21 @@ module tb_trap_controller;
                 tests_failed++;
                 $fatal(1, "%s: expected trap=%0b cause=%0d, got trap=%0b cause=%0d",
                        name, expected_trap, expected_cause, trap.is_trap, trap.exception_cause);
+            end
+        end
+    endtask
+
+    task automatic check_interrupt(
+        input string name,
+        input trap_interrupt_cause_t expected_cause
+    );
+        begin
+            #1;
+            tests_run++;
+            if (!trap.is_trap || !trap.is_interrupt || trap.interrupt_cause !== expected_cause) begin
+                tests_failed++;
+                $fatal(1, "%s: expected interrupt cause=%0d, got trap=%0b interrupt=%0b cause=%0d",
+                       name, expected_cause, trap.is_trap, trap.is_interrupt, trap.interrupt_cause);
             end
         end
     endtask
@@ -73,6 +100,12 @@ module tb_trap_controller;
             pma_write_fault = 1'b0;
             pma_read_fault = 1'b0;
             pma_faulting_addr = 32'h0000_1234;
+            mip = '0;
+            mie = '0;
+            sie = '0;
+            mstatus = '0;
+            mideleg = '0;
+            medeleg = '0;
             privilege = M_MODE;
             pc = 32'h0000_0080;
         end
@@ -119,6 +152,13 @@ module tb_trap_controller;
         pma_read_fault = 1'b1;
         check("PMA read denial traps as load access fault", 1'b1, LOAD_ACCESS_FAULT);
         check_tval("load access fault forwards its PMA address", pma_faulting_addr);
+
+        clear_inputs();
+        mip[M_TIMER] = 1'b1;
+        mie[M_TIMER] = 1'b1;
+        check("MTIP is masked while mstatus.MIE is clear", 1'b0, INST_ADDR_MISALIGNED);
+        mstatus[MSTATUS_MIE] = 1'b1;
+        check_interrupt("MTIP traps when globally and locally enabled", M_TIMER);
 
         if (tests_failed == 0) begin
             $display("tb_trap_controller: all %0d checks passed", tests_run);

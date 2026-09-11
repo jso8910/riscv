@@ -231,6 +231,15 @@ module control_unit (
                                 ctrl_o.illegal = '1;
                             end
                         end
+                        SRET : begin
+                            // In the case of a return from a trap, we want to branch to the SEPC
+                            ctrl_o.sret = '1;
+                            ctrl_o.branch_src = SRC_SEPC;
+                            ctrl_o.branch = '1;
+                            if (current_privilege_i != S_MODE) begin
+                                ctrl_o.illegal = '1;
+                            end
+                        end
                         // WFI is implemented as a NOP, which is legal.
                         WFI : ;
                         default : ctrl_o.illegal = '1;

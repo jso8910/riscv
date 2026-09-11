@@ -4,17 +4,30 @@ module csrfile (
     input logic                  clk,
     input logic                  rst_n,
     input ctrl_t                 ctrl_i,
+    input logic                  commit_i,
     input logic                  cycle_tick_i,
     // NOTE: for now, retire_count can only equal 0 or 1 because we don't have a superscalar processor.
     input logic                  retire_count_i,
     input logic [XLEN-1:0]       rs1_i,
     input trap_t                 trap_i,
+    input logic                  mtip_i,
+    input logic                  stip_i,
+    input logic [XLEN-1:0]       time_i,
     output logic [XLEN-1:0]      csr_val_o,
     output logic [XLEN-1:0]      mepc_o,
     output logic [XLEN-1:0]      mtvec_o,
+    output logic [XLEN-1:0]      sepc_o,
+    output logic [XLEN-1:0]      stvec_o,
     output logic [XLEN-1:0]      mstatus_o,
+    output logic [XLEN-1:0]      stimecmp_o,
     output logic [7:0]           pmp_cfg_o [0:63],
     output logic [XLEN-1:0]      pmp_addr_o [0:63],
+    output logic [XLEN-1:0]      mip_o,
+    output logic [XLEN-1:0]      mie_o,
+    output logic [XLEN-1:0]      sip_o,
+    output logic [XLEN-1:0]      sie_o,
+    output logic [XLEN-1:0]      medeleg_o,
+    output logic [XLEN-1:0]      mideleg_o,
     output logic                 csr_illegal_inst_o,
     output machine_privilege_t   machine_privilege_o
 );
@@ -22,7 +35,9 @@ module csrfile (
 
     // CSR register definitions
     logic [XLEN-1:0] mepc, mstatus, mtvec, mip, mie, mscratch, mcause,
-                     mtval, menvcfg, mseccfg, mcycle, minstret, mcountinhibit;
+                     mtval, menvcfg, mseccfg, mcycle, minstret, mcountinhibit,
+                     stimecmp, medeleg, mideleg, mcounteren, scounteren,
+                     sscratch, sepc, scause, stval, stvec;
 
     // physical memory protection CSRs
     // Separate arrays avoid an Icarus elaboration failure on variable indexes
@@ -55,6 +70,16 @@ module csrfile (
     assign mtvec_o = mtvec;
     assign machine_privilege_o = machine_privilege;
     assign mstatus_o = mstatus;
+    assign mip_o = mip | (XLEN'(mtip_i) << M_TIMER) | (XLEN'(stip_i) << S_TIMER);
+    assign medeleg_o = medeleg;
+    assign mideleg_o = mideleg;
+    assign mie_o = mie;
+
+    assign sepc_o = sepc;
+    assign stvec_o = stvec;
+    assign stimecmp_o = stimecmp;
+    assign sie_o = mie & SUPERVISOR_INTERRUPT_MASK & mideleg;
+    assign sip_o = mip_o & mideleg;
 
     always_comb begin
         csr_illegal_inst_o = '0;
@@ -77,6 +102,26 @@ module csrfile (
             csr_illegal_inst_o = '1;
         end
 
+        // Counter accesses should sometimes lead to errors based on the value of mcounteren
+        if ((ctrl_i.csr_write || ctrl_i.csr_read) && machine_privilege < M_MODE) begin
+            if ((ctrl_i.csr_addr == CYCLE && !mcounteren[COUNT_CY])
+                || ((ctrl_i.csr_addr == TIME || ctrl_i.csr_addr == STIMECMP) && !mcounteren[COUNT_TM])
+                || (ctrl_i.csr_addr == INSTRET && !mcounteren[COUNT_IR])
+                || (ctrl_i.csr_addr >= HPMCOUNTER3 && ctrl_i.csr_addr <= HPMCOUNTER31 && !mcounteren[ctrl_i.csr_addr - MCYCLE])) begin
+                    csr_illegal_inst_o = '1;
+                end
+        end
+
+        // Counter accesses should sometimes lead to errors based on the value of scounteren
+        if ((ctrl_i.csr_write || ctrl_i.csr_read) && machine_privilege < S_MODE) begin
+            if ((ctrl_i.csr_addr == CYCLE && !scounteren[COUNT_CY])
+                || ((ctrl_i.csr_addr == TIME || ctrl_i.csr_addr == STIMECMP) && !scounteren[COUNT_TM])
+                || (ctrl_i.csr_addr == INSTRET && !scounteren[COUNT_IR])
+                || (ctrl_i.csr_addr >= HPMCOUNTER3 && ctrl_i.csr_addr <= HPMCOUNTER31 && !scounteren[ctrl_i.csr_addr - MCYCLE])) begin
+                    csr_illegal_inst_o = '1;
+                end
+        end
+
         if (ctrl_i.csr_read && !csr_illegal_inst_o) begin
             if (ctrl_i.csr_addr >= PMPCFG0 && ctrl_i.csr_addr <= PMPCFG15 && !ctrl_i.csr_addr[0]) begin
                 for (int i = 0; i < PMP_ENTRIES_PER_CFG_CSR; i++) begin
@@ -85,7 +130,8 @@ module csrfile (
             end else if (ctrl_i.csr_addr >= PMPADDR0 && ctrl_i.csr_addr <= PMPADDR63) begin
                 csr_val_o = pmp_addr[pmpaddr_index];
             end else if ((ctrl_i.csr_addr >= MHPMCOUNTER3 && ctrl_i.csr_addr <= MHPMCOUNTER31)
-                         || (ctrl_i.csr_addr >= MHPMEVENT3 && ctrl_i.csr_addr <= MHPMEVENT31)) begin
+                         || (ctrl_i.csr_addr >= MHPMEVENT3 && ctrl_i.csr_addr <= MHPMEVENT31)
+                         || (ctrl_i.csr_addr >= HPMCOUNTER3 && ctrl_i.csr_addr <= HPMCOUNTER31)) begin
                 csr_val_o = '0;
             end else begin
             case (ctrl_i.csr_addr)
@@ -99,7 +145,8 @@ module csrfile (
                 MSTATUS : csr_val_o = mstatus;
                 MTVEC : csr_val_o = mtvec;
                 MIE : csr_val_o = mie;
-                MIP : csr_val_o = mip;
+                // MTIP and STIP bits are hardwired
+                MIP : csr_val_o = mip_o;
                 MSCRATCH : csr_val_o = mscratch;
                 MCAUSE : csr_val_o = mcause;
                 MTVAL : csr_val_o = mtval;
@@ -107,9 +154,24 @@ module csrfile (
                 MSECCFG : csr_val_o = mseccfg;
                 MCYCLE : csr_val_o = mcycle;
                 MINSTRET : csr_val_o = minstret;
+                MCOUNTEREN : csr_val_o = mcounteren;
+                SCOUNTEREN : csr_val_o = scounteren;
                 CYCLE : csr_val_o = mcycle;
+                TIME : csr_val_o = time_i;
                 INSTRET : csr_val_o = minstret;
                 MCOUNTINHIBIT : csr_val_o = mcountinhibit;
+                MIDELEG : csr_val_o = mideleg;
+                MEDELEG : csr_val_o = medeleg;
+                SSTATUS : csr_val_o = mstatus & SSTATUS_MASK;
+                SIE : csr_val_o = sie_o;
+                SSCRATCH : csr_val_o = sscratch;
+                SEPC : csr_val_o = sepc;
+                SCAUSE : csr_val_o = scause;
+                STVAL : csr_val_o = stval;
+                // Set a bit in SIP iff 
+                SIP : csr_val_o = sip_o;
+                STIMECMP : csr_val_o = stimecmp;
+                STVEC : csr_val_o = stvec;
                 default: csr_val_o = '0;
                 // We can't use this assertion because sometimes transient states will result in a
                 // read to an unimplemented register to appear like it is occurring very briefly.
@@ -136,7 +198,7 @@ module csrfile (
             mepc <= '0;
             mstatus <= MSTATUS_VAL;
             mtvec <= MVEC_VAL;
-            mip <= XLEN'(32'h0000_0080);
+            mip <= XLEN'(32'h0000_0000);
             mie <= '0;
             mscratch <= '0;
             mcause <= '0;
@@ -150,39 +212,76 @@ module csrfile (
             mcycle <= '0;
             minstret <= '0;
             mcountinhibit <= '0;
+            medeleg <= '0;
+            mideleg <= '0;
+            mcounteren <= '0;
+
+            stimecmp <= '0;
+            scounteren <= '0;
+            sscratch <= '0;
+            sepc <= '0;
+            scause <= '0;
+            stval <= '0;
+            stvec <= '0;
         end else begin
             if (trap_i.is_trap) begin
-                // TODO remember to use mideleg/medeleg to decide whether we instead trap into
-                // supervisor
-                mepc <= trap_i.pc;
-                mtval <= trap_i.tval;
+                if (trap_i.dest_machine_privilege == M_MODE) begin
+                    if (trap_i.is_interrupt)
+                        mcause <= {1'b1, trap_i.interrupt_cause};
+                    else
+                        mcause <= {1'b0, trap_i.exception_cause};
 
-                if (trap_i.is_interrupt)
-                    mcause <= {1'b1, trap_i.interrupt_cause};
-                else
-                    mcause <= {1'b0, trap_i.exception_cause};
+                    mepc <= trap_i.pc;
+                    mtval <= trap_i.tval;
 
-                // Save the previous machine privilege and MIE value
-                mstatus[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB] <= machine_privilege;
-                mstatus[MSTATUS_MPIE] <= mstatus[MSTATUS_MIE];
-                // Disable interrupts
-                mstatus[MSTATUS_MIE] <= '0;
-                // Enter machine mode (later support for mideleg/medeleg TODO)
-                machine_privilege <= M_MODE;
-            end else if (ctrl_i.mret) begin
-                // TODO add check that we are actually in machine mode
+                    // Save the previous machine privilege and MIE value
+                    mstatus[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB] <= machine_privilege;
+                    mstatus[MSTATUS_MPIE] <= mstatus[MSTATUS_MIE];
+                    // Disable interrupts
+                    mstatus[MSTATUS_MIE] <= '0;
+                    // Enter machine mode
+                    machine_privilege <= M_MODE;
+                end else if (trap_i.dest_machine_privilege == S_MODE) begin
+                    if (trap_i.is_interrupt)
+                        scause <= {1'b1, trap_i.interrupt_cause};
+                    else
+                        scause <= {1'b0, trap_i.exception_cause};
+
+                    sepc <= trap_i.pc;
+                    stval <= trap_i.tval;
+
+                    // Save the previous machine privilege and MIE value
+                    mstatus[MSTATUS_SPP] <= machine_privilege[0];
+                    mstatus[MSTATUS_SPIE] <= mstatus[MSTATUS_SIE];
+                    // Disable interrupts
+                    mstatus[MSTATUS_SIE] <= '0;
+                    // Enter supervisor mode
+                    machine_privilege <= S_MODE;
+                end
+            end else if (commit_i && ctrl_i.mret) begin
                 // Revert to previous privilege (before trap)
                 machine_privilege <= machine_privilege_t'(mstatus[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB]);
                 // Revert to previous interrupt enable bit
                 mstatus[MSTATUS_MIE] <= mstatus[MSTATUS_MPIE];
                 mstatus[MSTATUS_MPIE] <= '1;
-                // TODO: change to least privileged mode
-                mstatus[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB] <= M_MODE;
+                // Update MPP to least supported mode (user)
+                mstatus[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB] <= U_MODE;
 
                 // Turn off MPRV if the new privilege != M
                 if (machine_privilege_t'(mstatus[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB]) != M_MODE)
                     mstatus[MSTATUS_MPRV] <= '0;
-            end else if (ctrl_i.csr_write && !csr_illegal_inst_o) begin
+            end else if (commit_i && ctrl_i.sret) begin
+                // Revert to previous privilege (before trap)
+                machine_privilege <= machine_privilege_t'({1'b0, mstatus[MSTATUS_SPP]});
+                // Revert to previous interrupt enable bit
+                mstatus[MSTATUS_SIE] <= mstatus[MSTATUS_SPIE];
+                mstatus[MSTATUS_SPIE] <= '1;
+                // Update SPP to least supported mode (user)
+                mstatus[MSTATUS_SPP] <= '0;
+
+                // Turn off MPRV if the new privilege != M (always true)
+                mstatus[MSTATUS_MPRV] <= '0;
+            end else if (commit_i && ctrl_i.csr_write && !csr_illegal_inst_o) begin
                 if (ctrl_i.csr_addr >= PMPCFG0 && ctrl_i.csr_addr <= PMPCFG15 && !ctrl_i.csr_addr[0]) begin
                     for (int i = 0; i < PMP_ENTRIES_PER_CFG_CSR; i++) begin
                         if (!pmp_cfg[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i][PMPCFG_L_IDX]) begin
@@ -220,6 +319,19 @@ module csrfile (
                     MCYCLE : mcycle <= value_to_write;
                     MINSTRET : minstret <= value_to_write;
                     MCOUNTINHIBIT : mcountinhibit <= legalize_csr_write(MCOUNTINHIBIT, value_to_write, mcountinhibit);
+                    MEDELEG : medeleg <= legalize_csr_write(MEDELEG /* logic[11:0] */, value_to_write /* logic[63:0] */, medeleg /* logic[63:0] */);
+                    MIDELEG : mideleg <= legalize_csr_write(MIDELEG /* logic[11:0] */, value_to_write /* logic[63:0] */, mideleg /* logic[63:0] */);
+                    MCOUNTEREN : mcounteren <= value_to_write;
+                    SCOUNTEREN : scounteren <= value_to_write;
+                    SSTATUS : mstatus <= legalize_csr_write(SSTATUS, value_to_write /* logic[63:0] */, mstatus /* logic[63:0] */);
+                    SIP : mip <= legalize_csr_write(SIP, value_to_write /* logic[63:0] */, mip /* logic[63:0] */);
+                    SIE : mie <= legalize_csr_write(SIE, value_to_write /* logic[63:0] */, mie /* logic[63:0] */);
+                    SSCRATCH : sscratch <= value_to_write;
+                    SEPC : sepc <= legalize_csr_write(SEPC, value_to_write, sepc);
+                    SCAUSE : scause <= value_to_write;
+                    STVAL : stval <= value_to_write;
+                    STIMECMP : stimecmp <= value_to_write;
+                    STVEC : stvec <= legalize_csr_write(STVEC, value_to_write, stvec);
                     // If we get here, something has gone wrong (ie we are either allowing a CSR address
                     // we shouldn't, or not all CSRs have been implemented)
                     default: $fatal(1, "CSR write CASE statement missing CSR: %h", ctrl_i.csr_addr);
@@ -229,9 +341,9 @@ module csrfile (
 
             // Increment cycle counter and instruction count ONLY if it wasn't written by a CSR
             // operation. mcountinhibit should also not be set. So both these conditions must be met
-            if (!mcountinhibit[MCOUNTINHIBIT_CY] && (!ctrl_i.csr_write || csr_illegal_inst_o || ctrl_i.csr_addr != MCYCLE))
+            if (!mcountinhibit[COUNT_CY] && (!ctrl_i.csr_write || csr_illegal_inst_o || ctrl_i.csr_addr != MCYCLE || !commit_i))
                 mcycle <= mcycle + XLEN'(cycle_tick_i);
-            if (!mcountinhibit[MCOUNTINHIBIT_IR] && (!ctrl_i.csr_write || csr_illegal_inst_o || ctrl_i.csr_addr != MINSTRET))
+            if (!mcountinhibit[COUNT_IR] && (!ctrl_i.csr_write || csr_illegal_inst_o || ctrl_i.csr_addr != MINSTRET || !commit_i))
             minstret <= minstret + XLEN'(retire_count_i);
         end
     end
@@ -240,16 +352,22 @@ function automatic logic csr_addr_exists(
     input logic [11:0] csr_addr
 );
     return (csr_addr >= MVENDORID && csr_addr <= MCONFIGPTR)
-        || csr_addr == MSTATUS || csr_addr == MISA || csr_addr == MIE || csr_addr == MTVEC
+        || csr_addr == MSTATUS || csr_addr == MISA || csr_addr == MEDELEG || csr_addr == MIDELEG
+        || csr_addr == MIE || csr_addr == MTVEC || csr_addr == MCOUNTEREN
         || (csr_addr >= MSCRATCH && csr_addr <= MIP)
         || csr_addr == MSECCFG
         || (csr_addr >= PMPCFG0 && csr_addr <= PMPCFG15 && !csr_addr[0])    // only even PMPCFGs are allowed in RV64
         || (csr_addr >= PMPADDR0 && csr_addr <= PMPADDR63)
         || csr_addr == MCYCLE || csr_addr == MINSTRET
-        || csr_addr == CYCLE || csr_addr == INSTRET
+        || csr_addr == CYCLE || csr_addr == TIME || csr_addr == INSTRET
+        || (csr_addr >= HPMCOUNTER3 && csr_addr <= HPMCOUNTER31)
         || (csr_addr >= MHPMCOUNTER3 && csr_addr <= MHPMCOUNTER31)
         || (csr_addr >= MHPMEVENT3 && csr_addr <= MHPMEVENT31)
-        || csr_addr == MCOUNTINHIBIT;
+        || csr_addr == MCOUNTINHIBIT
+        || csr_addr == SSTATUS || csr_addr == SIE || csr_addr == STVEC
+        || csr_addr == SCOUNTEREN || csr_addr == SSCRATCH || csr_addr == SEPC
+        || csr_addr == SCAUSE || csr_addr == STVAL || csr_addr == SIP
+        || csr_addr == STIMECMP;
 endfunction
 
 function automatic logic [XLEN-1:0] legalize_csr_write(
@@ -262,8 +380,8 @@ function automatic logic [XLEN-1:0] legalize_csr_write(
         MEPC : legalize_csr_write = value & ~(XLEN'('d3));
         MSTATUS : begin
             legalize_csr_write = (value & MSTATUS_WRITE_MASK_VAL) | (prev_val & ~MSTATUS_WRITE_MASK_VAL);
-            if (machine_privilege_t'(legalize_csr_write[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB]) != IMPLEMENTED_PRIVILEGE) begin
-                legalize_csr_write[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB] = IMPLEMENTED_PRIVILEGE;
+            if (machine_privilege_t'(value[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB]) == RESERVED) begin
+                legalize_csr_write[MSTATUS_MPP_MSB : MSTATUS_MPP_LSB] = M_MODE;
             end
         end
         MTVEC : begin
@@ -273,10 +391,17 @@ function automatic logic [XLEN-1:0] legalize_csr_write(
                 legalize_csr_write[1:0] = TRAP_DIRECT;
             end
         end
-        // MIP is driven by interrupt sources, not CSR writes. MTIP is set on reset to match the
-        // configured Sail platform; interrupt delivery itself is not implemented yet.
-        MIP : legalize_csr_write = prev_val;
-        MIE : legalize_csr_write = value & XLEN'(32'h0000_0888);
+        // MIP is driven by interrupt sources, with a couple exceptions:
+        // - SEIP
+        // - SSIP
+        // So these two bits are writable
+        MIP : legalize_csr_write = value & MIP_WRITABLE_MASK;
+        MIE : legalize_csr_write = value & STANDARD_INTERRUPT_MASK;
+        // Implement the standard delegatable synchronous exceptions and all
+        // six standard supervisor/machine interrupt causes.  ECALL-from-M
+        // (bit 11) and ECALL-from-S (bit 9) cannot be delegated downward.
+        MIDELEG : legalize_csr_write = value & SUPERVISOR_INTERRUPT_MASK;
+        MEDELEG : legalize_csr_write = value & MEDELEG_WRITABLE_MASK;
         MCAUSE : begin
             // Previously, I didn't allow writes of reserved values. However, the RISC-V Sail model
             // expects these to be allowed, which is technically valid under the ISA.
@@ -287,7 +412,23 @@ function automatic logic [XLEN-1:0] legalize_csr_write(
         // no bits can be written
         MSECCFG : legalize_csr_write = (value & 'b0) | (prev_val & (~'b0));
         // bit 1 cannot be set to anything other than 0, bits 3-63 are read only
-        MCOUNTINHIBIT : legalize_csr_write = value & ('b101);
+        MCOUNTINHIBIT : legalize_csr_write = value & ((XLEN'(1) << COUNT_CY)
+                                                     | (XLEN'(1) << COUNT_IR));
+        SSTATUS : legalize_csr_write = (value & SSTATUS_MASK) | (prev_val & (~SSTATUS_MASK));
+        SIE : legalize_csr_write = (value & SUPERVISOR_INTERRUPT_MASK & mideleg) | (prev_val & (~(SUPERVISOR_INTERRUPT_MASK & mideleg)));
+        // SSIP is the only supervisor pending bit this implementation lets
+        // software raise or clear.  As a supervisor CSR view, it is writable
+        // only after M-mode delegates that interrupt class.
+        SIP : legalize_csr_write = (value & (XLEN'(1) << S_SOFTWARE) & mideleg)
+                                | (prev_val & ~((XLEN'(1) << S_SOFTWARE) & mideleg));
+        SEPC : legalize_csr_write = value & ~(XLEN'('d3));
+        STVEC : begin
+            legalize_csr_write = value;
+            // bits 1:0 (MODE) must be set to 0 (direct) or 1 (vectored)
+            if (legalize_csr_write[1:0] > 'b01) begin
+                legalize_csr_write[1:0] = TRAP_DIRECT;
+            end
+        end
         default: legalize_csr_write = value;
     endcase
 endfunction

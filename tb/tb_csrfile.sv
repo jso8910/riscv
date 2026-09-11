@@ -10,6 +10,9 @@ module tb_csrfile;
     logic retire_count;
     logic [XLEN-1:0] rs1;
     trap_t trap;
+    logic mtip;
+    logic stip;
+    logic [XLEN-1:0] time_i;
     logic [XLEN-1:0] csr_val;
     logic [XLEN-1:0] mepc;
     logic [XLEN-1:0] mtvec;
@@ -26,6 +29,9 @@ module tb_csrfile;
         .retire_count_i(retire_count),
         .rs1_i(rs1),
         .trap_i(trap),
+        .mtip_i(mtip),
+        .stip_i(stip),
+        .time_i(time_i),
         .csr_val_o(csr_val),
         .mepc_o(mepc),
         .mtvec_o(mtvec),
@@ -90,6 +96,9 @@ module tb_csrfile;
         rst_n = 1'b1;
         rs1 = '0;
         trap = '0;
+        mtip = 1'b1;
+        stip = 1'b0;
+        time_i = '0;
         cycle_tick = 1'b0;
         retire_count = 1'b0;
         tests_run = 0;
@@ -100,13 +109,40 @@ module tb_csrfile;
         #1;
         check("reset enters M-mode", privilege == M_MODE);
         read_csr("mstatus reset has MPP=M", MSTATUS, MSTATUS_VAL);
+        read_csr("misa advertises I, S, and U", MISA, MISA_VAL);
         read_csr("mip reset has MTIP pending", MIP, 64'h0000_0000_0000_0080);
 
         rst_n = 1'b1;
         write_csr(MIE, '1);
-        read_csr("mie implements standard M-mode enable bits", MIE, 64'h0000_0000_0000_0888);
+        read_csr("mie implements standard interrupt enable bits", MIE, STANDARD_INTERRUPT_MASK);
         write_csr(MIP, '0);
         read_csr("mip ignores software writes", MIP, 64'h0000_0000_0000_0080);
+        mtip = 1'b0;
+        read_csr("MTIP deasserts when the timer source clears", MIP, '0);
+        mtip = 1'b1;
+        write_csr(MIP, (XLEN'(1) << S_EXTERNAL) | (XLEN'(1) << S_SOFTWARE));
+        read_csr("mip retains writable supervisor software and external bits", MIP,
+                 (XLEN'(1) << M_TIMER) | (XLEN'(1) << S_EXTERNAL) | (XLEN'(1) << S_SOFTWARE));
+
+        write_csr(MIDELEG, '1);
+        read_csr("mideleg implements supervisor interrupt delegation bits", MIDELEG,
+                 SUPERVISOR_INTERRUPT_MASK);
+        write_csr(SIE, '1);
+        read_csr("sie writes delegated supervisor interrupt enables", SIE,
+                 SUPERVISOR_INTERRUPT_MASK);
+        write_csr(SIP, '0);
+        read_csr("sip clears delegated SSIP but preserves external pending", SIP,
+                 XLEN'(1) << S_EXTERNAL);
+        write_csr(SIP, XLEN'(1) << S_SOFTWARE);
+        read_csr("sip writes delegated SSIP", SIP,
+                 (XLEN'(1) << S_EXTERNAL) | (XLEN'(1) << S_SOFTWARE));
+        write_csr(MEDELEG, '1);
+        read_csr("medeleg implements standard lower-privilege exceptions", MEDELEG,
+                 MEDELEG_WRITABLE_MASK);
+
+        write_csr(MSTATUS, '1);
+        read_csr("mstatus retains supervisor status fields and MPRV", MSTATUS,
+                 MSTATUS_WRITE_MASK_VAL);
 
         write_csr(MEPC, 64'h0123_4567_0000_1003);
         read_csr("mepc clears its two low bits", MEPC, 64'h0123_4567_0000_1000);
@@ -154,6 +190,7 @@ module tb_csrfile;
         trap.is_trap = 1'b1;
         trap.pc = 32'h0000_0080;
         trap.exception_cause = BREAKPOINT;
+        trap.dest_machine_privilege = M_MODE;
         @(posedge clk);
         #1;
         trap = '0;
