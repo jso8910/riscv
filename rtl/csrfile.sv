@@ -28,6 +28,7 @@ module csrfile (
     output logic [XLEN-1:0]      sie_o,
     output logic [XLEN-1:0]      medeleg_o,
     output logic [XLEN-1:0]      mideleg_o,
+    output logic [XLEN-1:0]      satp_o,
     output logic                 csr_illegal_inst_o,
     output machine_privilege_t   machine_privilege_o
 );
@@ -35,9 +36,9 @@ module csrfile (
 
     // CSR register definitions
     logic [XLEN-1:0] mepc, mstatus, mtvec, mip, mie, mscratch, mcause,
-                     mtval, menvcfg, mseccfg, mcycle, minstret, mcountinhibit,
+                     mtval, menvcfg, mseccfg, senvcfg, mcycle, minstret, mcountinhibit,
                      stimecmp, medeleg, mideleg, mcounteren, scounteren,
-                     sscratch, sepc, scause, stval, stvec;
+                     sscratch, sepc, scause, stval, stvec, satp;
 
     // physical memory protection CSRs
     // Separate arrays avoid an Icarus elaboration failure on variable indexes
@@ -70,7 +71,9 @@ module csrfile (
     assign mtvec_o = mtvec;
     assign machine_privilege_o = machine_privilege;
     assign mstatus_o = mstatus;
-    assign mip_o = mip | (XLEN'(mtip_i) << M_TIMER) | (XLEN'(stip_i) << S_TIMER);
+    // With Sstc disabled for S-mode, STIP reverts to software-writable mip behavior.
+    assign mip_o = mip | (XLEN'(mtip_i) << M_TIMER)
+                     | (XLEN'(stip_i && menvcfg[MENVCFG_STCE]) << S_TIMER);
     assign medeleg_o = medeleg;
     assign mideleg_o = mideleg;
     assign mie_o = mie;
@@ -80,10 +83,31 @@ module csrfile (
     assign stimecmp_o = stimecmp;
     assign sie_o = mie & SUPERVISOR_INTERRUPT_MASK & mideleg;
     assign sip_o = mip_o & mideleg;
+    assign satp_o = satp;
 
     always_comb begin
         csr_illegal_inst_o = '0;
         csr_val_o = '0;
+
+        // We want to handle the TVM, TW, and TSR bits here
+        // TVM: S-mode reads/writes to satp or executes to SFENCE.VMA result in an illegal
+        // instruction
+        if (mstatus[MSTATUS_TVM] && machine_privilege == S_MODE &&
+            (ctrl_i.tlb_invalidate ||
+                ((ctrl_i.csr_write || ctrl_i.csr_read) && ctrl_i.csr_addr == SATP)))
+        begin
+            csr_illegal_inst_o = '1;
+        end
+
+        // TW: S/U executing WFI
+        if (mstatus[MSTATUS_TW] && machine_privilege <= S_MODE && ctrl_i.wfi) begin
+            csr_illegal_inst_o = '1;
+        end
+
+        // TSR: S executing SRET
+        if (mstatus[MSTATUS_TSR] && machine_privilege == S_MODE && ctrl_i.sret) begin
+            csr_illegal_inst_o = '1;
+        end
 
         // Handle illegal CSR accesses
         // There are a few cases:
@@ -99,6 +123,13 @@ module csrfile (
         end
 
         if ((ctrl_i.csr_write || ctrl_i.csr_read) && machine_privilege_t'(ctrl_i.csr_addr[9:8]) > machine_privilege) begin
+            csr_illegal_inst_o = '1;
+        end
+
+        if ((ctrl_i.csr_write || ctrl_i.csr_read)
+            && ctrl_i.csr_addr == STIMECMP
+            && machine_privilege == S_MODE
+            && !menvcfg[MENVCFG_STCE]) begin
             csr_illegal_inst_o = '1;
         end
 
@@ -152,6 +183,9 @@ module csrfile (
                 MTVAL : csr_val_o = mtval;
                 MENVCFG : csr_val_o = menvcfg;
                 MSECCFG : csr_val_o = mseccfg;
+                // FIOM is the sole implemented senvcfg bit.  It controls
+                // U-mode, independently of menvcfg.FIOM's S/U-mode control.
+                SENVCFG : csr_val_o = senvcfg;
                 MCYCLE : csr_val_o = mcycle;
                 MINSTRET : csr_val_o = minstret;
                 MCOUNTEREN : csr_val_o = mcounteren;
@@ -172,6 +206,7 @@ module csrfile (
                 SIP : csr_val_o = sip_o;
                 STIMECMP : csr_val_o = stimecmp;
                 STVEC : csr_val_o = stvec;
+                SATP : csr_val_o = satp;
                 default: csr_val_o = '0;
                 // We can't use this assertion because sometimes transient states will result in a
                 // read to an unimplemented register to appear like it is occurring very briefly.
@@ -205,6 +240,7 @@ module csrfile (
             mtval <= '0;
             menvcfg <= '0;
             mseccfg <= '0;
+            senvcfg <= '0;
             for (int i = 0; i <= 63; i++) begin
                 pmp_cfg[i] <= '0;
                 pmp_addr[i] <= '0;
@@ -223,6 +259,7 @@ module csrfile (
             scause <= '0;
             stval <= '0;
             stvec <= '0;
+            satp <= '0;
         end else begin
             if (trap_i.is_trap) begin
                 if (trap_i.dest_machine_privilege == M_MODE) begin
@@ -316,13 +353,14 @@ module csrfile (
                     MTVAL : mtval <= value_to_write;
                     MENVCFG : menvcfg <= legalize_csr_write(MENVCFG, value_to_write, menvcfg);
                     MSECCFG : mseccfg <= legalize_csr_write(MSECCFG, value_to_write, mseccfg);
+                    SENVCFG : senvcfg <= legalize_csr_write(SENVCFG, value_to_write, senvcfg);
                     MCYCLE : mcycle <= value_to_write;
                     MINSTRET : minstret <= value_to_write;
                     MCOUNTINHIBIT : mcountinhibit <= legalize_csr_write(MCOUNTINHIBIT, value_to_write, mcountinhibit);
                     MEDELEG : medeleg <= legalize_csr_write(MEDELEG /* logic[11:0] */, value_to_write /* logic[63:0] */, medeleg /* logic[63:0] */);
                     MIDELEG : mideleg <= legalize_csr_write(MIDELEG /* logic[11:0] */, value_to_write /* logic[63:0] */, mideleg /* logic[63:0] */);
-                    MCOUNTEREN : mcounteren <= value_to_write;
-                    SCOUNTEREN : scounteren <= value_to_write;
+                    MCOUNTEREN : mcounteren <= value_to_write & XLEN'(3'b111);
+                    SCOUNTEREN : scounteren <= value_to_write & XLEN'(3'b111);
                     SSTATUS : mstatus <= legalize_csr_write(SSTATUS, value_to_write /* logic[63:0] */, mstatus /* logic[63:0] */);
                     SIP : mip <= legalize_csr_write(SIP, value_to_write /* logic[63:0] */, mip /* logic[63:0] */);
                     SIE : mie <= legalize_csr_write(SIE, value_to_write /* logic[63:0] */, mie /* logic[63:0] */);
@@ -332,6 +370,7 @@ module csrfile (
                     STVAL : stval <= value_to_write;
                     STIMECMP : stimecmp <= value_to_write;
                     STVEC : stvec <= legalize_csr_write(STVEC, value_to_write, stvec);
+                    SATP : satp <= legalize_csr_write(SATP, value_to_write, satp);
                     // If we get here, something has gone wrong (ie we are either allowing a CSR address
                     // we shouldn't, or not all CSRs have been implemented)
                     default: $fatal(1, "CSR write CASE statement missing CSR: %h", ctrl_i.csr_addr);
@@ -353,7 +392,7 @@ function automatic logic csr_addr_exists(
 );
     return (csr_addr >= MVENDORID && csr_addr <= MCONFIGPTR)
         || csr_addr == MSTATUS || csr_addr == MISA || csr_addr == MEDELEG || csr_addr == MIDELEG
-        || csr_addr == MIE || csr_addr == MTVEC || csr_addr == MCOUNTEREN
+        || csr_addr == MIE || csr_addr == MTVEC || csr_addr == MCOUNTEREN || csr_addr == MENVCFG
         || (csr_addr >= MSCRATCH && csr_addr <= MIP)
         || csr_addr == MSECCFG
         || (csr_addr >= PMPCFG0 && csr_addr <= PMPCFG15 && !csr_addr[0])    // only even PMPCFGs are allowed in RV64
@@ -364,10 +403,10 @@ function automatic logic csr_addr_exists(
         || (csr_addr >= MHPMCOUNTER3 && csr_addr <= MHPMCOUNTER31)
         || (csr_addr >= MHPMEVENT3 && csr_addr <= MHPMEVENT31)
         || csr_addr == MCOUNTINHIBIT
-        || csr_addr == SSTATUS || csr_addr == SIE || csr_addr == STVEC
+        || csr_addr == SSTATUS || csr_addr == SIE || csr_addr == STVEC || csr_addr == SENVCFG
         || csr_addr == SCOUNTEREN || csr_addr == SSCRATCH || csr_addr == SEPC
         || csr_addr == SCAUSE || csr_addr == STVAL || csr_addr == SIP
-        || csr_addr == STIMECMP;
+        || csr_addr == STIMECMP || csr_addr == SATP;
 endfunction
 
 function automatic logic [XLEN-1:0] legalize_csr_write(
@@ -395,7 +434,8 @@ function automatic logic [XLEN-1:0] legalize_csr_write(
         // - SEIP
         // - SSIP
         // So these two bits are writable
-        MIP : legalize_csr_write = value & MIP_WRITABLE_MASK;
+        MIP : legalize_csr_write = value & (MIP_WRITABLE_MASK
+                             | (!menvcfg[MENVCFG_STCE] ? (XLEN'(1) << S_TIMER) : '0));
         MIE : legalize_csr_write = value & STANDARD_INTERRUPT_MASK;
         // Implement the standard delegatable synchronous exceptions and all
         // six standard supervisor/machine interrupt causes.  ECALL-from-M
@@ -407,20 +447,24 @@ function automatic logic [XLEN-1:0] legalize_csr_write(
             // expects these to be allowed, which is technically valid under the ISA.
             legalize_csr_write = value;
         end
-        // only bit 0 can be written
-        MENVCFG : legalize_csr_write = (value & 'b1) | (prev_val & (~'b1));
+        // FIOM and Sstc.STCE are writable; unsupported menvcfg bits remain zero.
+        MENVCFG : legalize_csr_write = (value & MENVCFG_WRITABLE_MASK)
+                         | (prev_val & ~MENVCFG_WRITABLE_MASK);
+        // FIOM is the sole implemented senvcfg field.
+        SENVCFG : legalize_csr_write = (value & 'b1) | (prev_val & (~'b1));
         // no bits can be written
         MSECCFG : legalize_csr_write = (value & 'b0) | (prev_val & (~'b0));
         // bit 1 cannot be set to anything other than 0, bits 3-63 are read only
         MCOUNTINHIBIT : legalize_csr_write = value & ((XLEN'(1) << COUNT_CY)
                                                      | (XLEN'(1) << COUNT_IR));
-        SSTATUS : legalize_csr_write = (value & SSTATUS_MASK) | (prev_val & (~SSTATUS_MASK));
+        SSTATUS : legalize_csr_write = (value & SSTATUS_WRITE_MASK)
+                                     | (prev_val & (~SSTATUS_WRITE_MASK));
         SIE : legalize_csr_write = (value & SUPERVISOR_INTERRUPT_MASK & mideleg) | (prev_val & (~(SUPERVISOR_INTERRUPT_MASK & mideleg)));
         // SSIP is the only supervisor pending bit this implementation lets
         // software raise or clear.  As a supervisor CSR view, it is writable
         // only after M-mode delegates that interrupt class.
         SIP : legalize_csr_write = (value & (XLEN'(1) << S_SOFTWARE) & mideleg)
-                                | (prev_val & ~((XLEN'(1) << S_SOFTWARE) & mideleg));
+                    | (prev_val & ~((XLEN'(1) << S_SOFTWARE) & mideleg));
         SEPC : legalize_csr_write = value & ~(XLEN'('d3));
         STVEC : begin
             legalize_csr_write = value;
@@ -428,6 +472,14 @@ function automatic logic [XLEN-1:0] legalize_csr_write(
             if (legalize_csr_write[1:0] > 'b01) begin
                 legalize_csr_write[1:0] = TRAP_DIRECT;
             end
+        end
+        SATP : begin
+            case (satp_mode_t'(value[SATP_MODE_MSB : SATP_MODE_LSB]))
+                // With MODE_BARE, the rest of the fields are zero'd (no virtual memory)
+                MODE_BARE : legalize_csr_write = '0;
+                MODE_SV39 : legalize_csr_write = value;
+                default : legalize_csr_write = '0;
+            endcase
         end
         default: legalize_csr_write = value;
     endcase

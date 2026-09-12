@@ -11,11 +11,11 @@
     },
     "scounteren_writable_bits": {
       "len": 32,
-      "value": "0x0000_0000"
+      "value": "0x0000_0007"
     },
     "mcounteren_writable_bits": {
       "len": 32,
-      "value": "0x0000_0000"
+      "value": "0x0000_0007"
     },
     "mtvec": {
       "direct": {
@@ -32,20 +32,20 @@
         "supported": true
       },
       "vectored": {
-        "supported": false,
+        "supported": true,
         "base_alignment": 2
       }
     },
     "medeleg": {
       "delegatable_bits": {
         "len": 64,
-        "value": "0x0000_0000_0000_0000"
+        "value": "0x0000_0000_0000_b1ff"
       }
     },
     "mideleg": {
       "delegatable_bits": {
         "len": "xlen",
-        "value": "0x0000_0000_0000_0000"
+        "value": "0x0000_0000_0000_0222"
       }
     },
     "xtval_nonzero": {
@@ -54,13 +54,13 @@
       "hardware_breakpoint": false,
       "load_address_misaligned": false,
       "load_access_fault": true,
-      "load_page_fault": false,
+      "load_page_fault": true,
       "samo_address_misaligned": false,
       "samo_access_fault": true,
-      "samo_page_fault": false,
+      "samo_page_fault": true,
       "fetch_address_misaligned": false,
       "fetch_access_fault": true,
-      "fetch_page_fault": false,
+      "fetch_page_fault": true,
       "software_check": false,
       "reserved_exceptions": false
     },
@@ -79,7 +79,7 @@
     "privileged_isa_version": "Privileged_ISA_1_12"
   },
   "memory": {
-    "physaddr_bits": 32,
+    "physaddr_bits": 56,
     "pmp": {
       "grain": 0,
       "count": 64,
@@ -142,7 +142,7 @@
           "vector_misaligned_atomicity_granule_size_exp": 0,
           "reservability": "RsrvNone",
           "supports_cbo_zero": false,
-          "supports_pte_read": false,
+          "supports_pte_read": true,
           "supports_pte_write": false
         },
         "include_in_device_tree": false
@@ -247,10 +247,10 @@
       "supported": false
     },
     "S": {
-      "supported": false
+      "supported": true
     },
     "U": {
-      "supported": false
+      "supported": true
     },
     "Zibi": {
       "supported": false
@@ -479,13 +479,13 @@
       "supported": false
     },
     "Sstc": {
-      "supported": false
+      "supported": true
     },
     "Sstvala": {
       "supported": false
     },
     "Svade": {
-      "supported": false
+      "supported": true
     },
     "Svadu": {
       "supported": false
@@ -518,14 +518,14 @@
       "supported": false
     },
     "Svbare": {
-      "supported": false,
+      "supported": true,
       "sfence_vma_illegal_if_svbare_only": true
     },
     "Sv32": {
       "supported": false
     },
     "Sv39": {
-      "supported": false
+      "supported": true
     },
     "Sv48": {
       "supported": false

@@ -3,23 +3,27 @@ SHELL := /bin/bash
 
 IVERILOG ?= iverilog
 VVP ?= vvp
+VERILATOR ?= verilator
 IVERILOG_FLAGS := -g2012
 IVERILOG_WARN_FILTER := sed '/sorry: constant selects in always_[*] processes are not fully supported/d'
 
 BUILD_DIR := build
-TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-timer test-system-timer test
+TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test
 TEST_TARGET_COUNT := $(words $(TEST_TARGETS))
 
 # These paths are evaluated from within $(ARCH_TEST_DIR).
 ARCH_TEST_DIR ?= riscv-arch-test
 ARCH_TEST_CONFIG ?= ../riscv-test-config/test_config.yaml
 ARCH_TEST_RUN_CMD ?= ../riscv-test-config/run_cmd.txt
-ARCH_TEST_ELF_DIR ?= work/jason-rv64i/elfs
-ARCH_TEST_EXTENSIONS ?= I,Sm,Zicsr,Zicntr
+ARCH_TEST_ELF_DIR ?= work/jason-rv64isu-sv39/elfs
+# Keep this aligned with riscv-test-config/jason-rv64i.yaml.  The privileged
+# coverage includes U/S execution, Sstc, Sv39 translation, Svade A/D faults, and
+# Bare satp mode in addition to the base machine-mode/CSR/counter coverage.
+ARCH_TEST_EXTENSIONS ?= I,Sm,Zicsr,Zicntr,Zihpm,U,S,Sstc,Sv39,Svade,Svbare
 ARCH_TEST_FAST ?= True
 ARCH_TEST_TIMEOUT ?= 60
 
-.PHONY: all core test test-all test-arch test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-timer test-system-timer clean
+.PHONY: all core test test-all test-arch test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer clean
 
 all: core
 
@@ -27,11 +31,11 @@ $(BUILD_DIR):
 	mkdir -p $@
 
 core: $(BUILD_DIR)
-	$(IVERILOG) $(IVERILOG_FLAGS) -s riscv_core -o $(BUILD_DIR)/riscv_core -f sim/rtl.f 2>&1 | $(IVERILOG_WARN_FILTER)
+	$(VERILATOR) --lint-only --sv -Wno-fatal --top-module riscv_core -f sim/rtl.f
 
 define RUN_TEST
-	$(IVERILOG) $(IVERILOG_FLAGS) -s $(1) -o $(BUILD_DIR)/$(1) -f $(2) 2>&1 | $(IVERILOG_WARN_FILTER)
-	$(VVP) $(BUILD_DIR)/$(1)
+	$(VERILATOR) --binary --timing --sv -Wno-fatal --top-module $(1) --Mdir $(BUILD_DIR)/obj_$(1) -f $(2)
+	$(BUILD_DIR)/obj_$(1)/V$(1)
 endef
 
 test: $(BUILD_DIR)
@@ -99,6 +103,9 @@ test-trap-controller: $(BUILD_DIR)
 
 test-pma: $(BUILD_DIR)
 	$(call RUN_TEST,tb_pma_checker,sim/tb_pma_checker.f)
+
+test-tlb: $(BUILD_DIR)
+	$(call RUN_TEST,tb_tlb,sim/tb_tlb.f)
 
 test-timer: $(BUILD_DIR)
 	$(call RUN_TEST,tb_timer_interrupt,sim/tb_timer_interrupt.f)

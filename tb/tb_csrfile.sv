@@ -16,6 +16,7 @@ module tb_csrfile;
     logic [XLEN-1:0] csr_val;
     logic [XLEN-1:0] mepc;
     logic [XLEN-1:0] mtvec;
+    logic [XLEN-1:0] mstatus;
     logic csr_illegal;
     machine_privilege_t privilege;
     int tests_run;
@@ -24,6 +25,7 @@ module tb_csrfile;
     csrfile dut (
         .clk(clk),
         .rst_n(rst_n),
+        .commit_i(1'b1),
         .ctrl_i(ctrl),
         .cycle_tick_i(cycle_tick),
         .retire_count_i(retire_count),
@@ -35,6 +37,19 @@ module tb_csrfile;
         .csr_val_o(csr_val),
         .mepc_o(mepc),
         .mtvec_o(mtvec),
+        .sepc_o(),
+        .stvec_o(),
+        .mstatus_o(mstatus),
+        .stimecmp_o(),
+        .pmp_cfg_o(),
+        .pmp_addr_o(),
+        .mip_o(),
+        .mie_o(),
+        .sip_o(),
+        .sie_o(),
+        .medeleg_o(),
+        .mideleg_o(),
+        .satp_o(),
         .csr_illegal_inst_o(csr_illegal),
         .machine_privilege_o(privilege)
     );
@@ -91,6 +106,18 @@ module tb_csrfile;
         end
     endtask
 
+    task automatic enter_privilege(input machine_privilege_t destination);
+        begin
+            trap = '0;
+            trap.is_trap = 1'b1;
+            trap.dest_machine_privilege = destination;
+            @(posedge clk);
+            #1;
+            trap = '0;
+            check("trap changes privilege for policy test", privilege == destination);
+        end
+    endtask
+
     initial begin
         clk = 1'b0;
         rst_n = 1'b1;
@@ -106,6 +133,7 @@ module tb_csrfile;
         clear_ctrl();
 
         rst_n = 1'b0;
+        @(posedge clk);
         #1;
         check("reset enters M-mode", privilege == M_MODE);
         read_csr("mstatus reset has MPP=M", MSTATUS, MSTATUS_VAL);
@@ -142,7 +170,64 @@ module tb_csrfile;
 
         write_csr(MSTATUS, '1);
         read_csr("mstatus retains supervisor status fields and MPRV", MSTATUS,
-                 MSTATUS_WRITE_MASK_VAL);
+                 (MSTATUS_VAL & ~MSTATUS_WRITE_MASK_VAL) | MSTATUS_WRITE_MASK_VAL);
+
+        // Only FIOM is implemented in each xenvcfg CSR.  senvcfg.FIOM
+        // independently controls U-mode FENCE behavior.
+        write_csr(SENVCFG, '1);
+        read_csr("senvcfg implements FIOM", SENVCFG, XLEN'(1));
+        write_csr(SENVCFG, '0);
+        read_csr("senvcfg FIOM clears", SENVCFG, '0);
+        write_csr(SSTATUS, '0);
+        read_csr("sstatus exposes read-only UXL", SSTATUS,
+                 XLEN'(2) << MSTATUS_UXL_LSB);
+
+        // Exercise TVM, TW, and TSR independently.  These are intentionally
+        // comb checks: a prohibited instruction must be identified before it
+        // can commit any state change.
+        write_csr(MSTATUS, MSTATUS_VAL | (XLEN'(1) << MSTATUS_TVM));
+        enter_privilege(S_MODE);
+        clear_ctrl();
+        ctrl.csr_addr = SATP;
+        ctrl.csr_read = 1'b1;
+        #1;
+        check("TVM rejects S-mode satp reads", csr_illegal);
+        clear_ctrl();
+        ctrl.tlb_invalidate = 1'b1;
+        #1;
+        check("TVM rejects S-mode SFENCE.VMA", csr_illegal);
+        clear_ctrl();
+        ctrl.wfi = 1'b1;
+        #1;
+        check("TVM alone does not reject WFI", !csr_illegal);
+        enter_privilege(M_MODE);
+
+        write_csr(MSTATUS, MSTATUS_VAL | (XLEN'(1) << MSTATUS_TW));
+        check("TW-only setup clears TVM", !mstatus[MSTATUS_TVM]);
+        check("TW-only setup sets TW", mstatus[MSTATUS_TW]);
+        enter_privilege(S_MODE);
+        clear_ctrl();
+        ctrl.wfi = 1'b1;
+        #1;
+        check("TW rejects S-mode WFI", csr_illegal);
+        clear_ctrl();
+        ctrl.csr_addr = SATP;
+        ctrl.csr_read = 1'b1;
+        #1;
+        check("TW alone permits satp access", !csr_illegal);
+        enter_privilege(M_MODE);
+
+        write_csr(MSTATUS, MSTATUS_VAL | (XLEN'(1) << MSTATUS_TSR));
+        enter_privilege(S_MODE);
+        clear_ctrl();
+        ctrl.sret = 1'b1;
+        #1;
+        check("TSR rejects S-mode SRET", csr_illegal);
+        clear_ctrl();
+        ctrl.wfi = 1'b1;
+        #1;
+        check("TSR alone permits WFI", !csr_illegal);
+        enter_privilege(M_MODE);
 
         write_csr(MEPC, 64'h0123_4567_0000_1003);
         read_csr("mepc clears its two low bits", MEPC, 64'h0123_4567_0000_1000);

@@ -1,1 +1,1 @@
--f core_rtl.f
+-f sim/core_rtl.f

@@ -23,6 +23,8 @@ module tb_next_pc;
         .rs1_data_i(rs1_data),
         .rs2_data_i(rs2_data),
         .alu_res_i(alu_res),
+        .sepc_i('0),
+        .stvec_i('0),
         .mepc_i(mepc),
         .mtvec_i(mtvec),
         .trap_i(trap),

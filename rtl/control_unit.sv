@@ -2,6 +2,7 @@ import riscv::*;
 
 module control_unit (
     input logic [IALIGN-1:0]  inst_i,
+    input logic               inst_valid_i,
     input machine_privilege_t current_privilege_i,
     output logic [XLEN-1:0]   imm_o,
     output ctrl_t             ctrl_o
@@ -60,9 +61,13 @@ module control_unit (
         ctrl_o.csr_wb_sel = WB_NORMAL;
         ctrl_o.csr_imm = '0;
 
+        ctrl_o.tlb_invalidate = '0;
+        ctrl_o.wfi = '0;
+
         ctrl_o.ebreak = '0;
         ctrl_o.ecall = '0;
         ctrl_o.mret = '0;
+        ctrl_o.sret = '0;
 
         ctrl_o.illegal = '0;
 
@@ -217,9 +222,7 @@ module control_unit (
             SYSTEM : begin
                 ctrl_o.inst_fmt = IMM_I;
                 case (funct3)
-                    // No support yet for ECALL/EBREAK, so they're treated as NOPs
-                    // But some instructions of this form are instead illegal
-                    PRIV : case (inst_i)
+                    PRIV : casez (inst_i)
                         ECALL : ctrl_o.ecall = '1;
                         EBREAK : ctrl_o.ebreak = '1;
                         MRET : begin
@@ -236,12 +239,22 @@ module control_unit (
                             ctrl_o.sret = '1;
                             ctrl_o.branch_src = SRC_SEPC;
                             ctrl_o.branch = '1;
-                            if (current_privilege_i != S_MODE) begin
+                            if (current_privilege_i < S_MODE) begin
                                 ctrl_o.illegal = '1;
                             end
                         end
                         // WFI is implemented as a NOP, which is legal.
-                        WFI : ;
+                        WFI : begin
+                            // However, we still need to set a signal so this instruction traps if
+                            // the TW bit of mstatus is set
+                            ctrl_o.wfi = '1;
+                        end
+                        SF_VMA : begin
+                            if (current_privilege_i == U_MODE)
+                                ctrl_o.illegal = '1;
+                            else
+                                ctrl_o.tlb_invalidate = '1;
+                        end
                         default : ctrl_o.illegal = '1;
                     endcase
 
@@ -300,6 +313,13 @@ module control_unit (
         if (ctrl_o.illegal) begin
             ctrl_o = '0;
             ctrl_o.illegal = '1;
+        end
+
+        // If the instruction being fetched isn't valid (ie we are in a bubble) then control signals
+        // should be nothing. The decode unit is responsible for suppressing effects of invalid
+        // fetch-buffer contents.
+        if (!inst_valid_i) begin
+            ctrl_o = '0;
         end
 
         // Control invariants

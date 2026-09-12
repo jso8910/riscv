@@ -6,11 +6,13 @@ module tb_control_unit;
     logic [IALIGN-1:0] inst;
     logic [XLEN-1:0] imm;
     ctrl_t ctrl;
+    machine_privilege_t current_privilege;
     int tests_run;
     int tests_failed;
 
     control_unit dut (
         .inst_i(inst),
+        .current_privilege_i(current_privilege),
         .imm_o(imm),
         .ctrl_o(ctrl)
     );
@@ -44,6 +46,7 @@ module tb_control_unit;
     initial begin
         tests_run = 0;
         tests_failed = 0;
+        current_privilege = M_MODE;
 
         drive(32'h0050_0093); // addi x1, x0, 5
         check("ADDI selects an immediate ALU operation",
@@ -74,6 +77,15 @@ module tb_control_unit;
               !ctrl.illegal && !ctrl.branch && !ctrl.jal && !ctrl.jalr
               && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write
               && !ctrl.csr_read && !ctrl.csr_write);
+
+        drive(32'h1220_8073); // sfence.vma x1, x2
+        check("SFENCE.VMA decodes to a TLB invalidation in M-mode",
+              ctrl.tlb_invalidate && !ctrl.illegal);
+        current_privilege = U_MODE;
+        #1;
+        check("SFENCE.VMA is illegal in U-mode",
+              ctrl.illegal && !ctrl.tlb_invalidate);
+        current_privilege = M_MODE;
 
         drive(32'h0000_10e7); // invalid JALR funct3, with rd=x1
         check("invalid JALR has no side effects",

@@ -3,142 +3,82 @@
 import riscv::*;
 
 module tb_memory_controller;
-    logic [XLEN-1:0] data_in;
-    ctrl_t           ctrl;
-    logic            commit;
-    logic [XLEN-1:0] data_out;
+    logic [XLEN-1:0] data_in, mtime, mtimecmp;
+    mem_req_t req;
+    mem_res_t res;
+    logic commit;
     logic [WWIDTH/8-1:0] we;
-
-    int tests_run;
-    int tests_failed;
+    logic mtime_we, mtimecmp_we;
+    int tests_run, tests_failed;
 
     memory_controller dut (
-        .data_i(data_in),
-        .ctrl_i(ctrl),
-        .commit_i(commit),
-        .data_o(data_out),
-        .we_o(we)
+        .data_i(data_in), .mtime_i(mtime), .mtimecmp_i(mtimecmp),
+        .mem_req_i(req), .commit_i(commit), .res_o(res), .we_o(we),
+        .mtime_we_o(mtime_we), .mtimecmp_we_o(mtimecmp_we)
     );
 
-    task automatic set_ctrl(
-        input logic        mem_read,
-        input logic        mem_write,
-        input mem_size_t   mem_size,
-        input mem_signed_t mem_signed
-    );
+    task automatic check(input string name, input logic condition);
         begin
-            ctrl = '0;
-            ctrl.mem_read = mem_read;
-            ctrl.mem_write = mem_write;
-            ctrl.mem_size = mem_size;
-            ctrl.mem_signed = mem_signed;
+            tests_run++;
+            if (!condition) begin
+                tests_failed++;
+                $fatal(1, "%s", name);
+            end
         end
     endtask
 
-    task automatic check(
-        input string            name,
-        input logic [XLEN-1:0]  raw_data,
-        input logic             mem_read,
-        input logic             mem_write,
-        input mem_size_t        mem_size,
-        input mem_signed_t      mem_signed,
-        input logic [XLEN-1:0]  expected_data,
-        input logic [WWIDTH/8-1:0] expected_we
+    task automatic request(
+        input mem_op_t op, input mem_size_t size, input mem_signed_t signedness
     );
         begin
-            data_in = raw_data;
-            set_ctrl(mem_read, mem_write, mem_size, mem_signed);
-            #1;
-
-            tests_run++;
-            if (data_out !== expected_data) begin
-                tests_failed++;
-                $fatal(1, "%s data: expected 0x%016x, got 0x%016x",
-                       name, expected_data, data_out);
-            end
-            if (we !== expected_we) begin
-                tests_failed++;
-                $fatal(1, "%s we: expected 0b%08b, got 0b%08b",
-                       name, expected_we, we);
-            end
+            req = '0;
+            req.valid = 1'b1;
+            req.op = op;
+            req.op_original = op;
+            req.size = size;
+            req.mem_signed = signedness;
         end
     endtask
 
     initial begin
-        data_in = '0;
-        ctrl = '0;
+        data_in = 64'h89ab_cdef_0123_8080;
+        mtime = 64'h1111;
+        mtimecmp = 64'h2222;
+        req = '0;
         commit = 1'b1;
         tests_run = 0;
         tests_failed = 0;
 
-        check("idle produces no read data or write enables",
-              32'h89ab_cdef, 1'b0, 1'b0, MEM_WORD, MEM_SIGNED,
-              '0, 8'b0000_0000);
-
-        check("byte write enables lane 0 at current address",
-              32'h0000_0000, 1'b0, 1'b1, MEM_BYTE, MEM_SIGNED,
-              '0, 8'b0000_0001);
-        check("halfword write enables lanes 0 and 1 at current address",
-              32'h0000_0000, 1'b0, 1'b1, MEM_HALF, MEM_SIGNED,
-              '0, 8'b0000_0011);
-        check("word write enables all lanes",
-              32'h0000_0000, 1'b0, 1'b1, MEM_WORD, MEM_SIGNED,
-              '0, 8'b0000_1111);
-        check("doubleword write enables all lanes",
-              '0, 1'b0, 1'b1, MEM_DOUBLE, MEM_SIGNED,
-              '0, 8'b1111_1111);
-        check("MEM_NONE write enables no lanes",
-              32'h0000_0000, 1'b0, 1'b1, MEM_NONE, MEM_SIGNED,
-              '0, 8'b0000_0000);
-
-        check("signed byte read positive",
-              32'h0000_007f, 1'b1, 1'b0, MEM_BYTE, MEM_SIGNED,
-              64'h0000_0000_0000_007f, 8'b0000_0000);
-        check("signed byte read negative",
-              32'h0000_0080, 1'b1, 1'b0, MEM_BYTE, MEM_SIGNED,
-              64'hffff_ffff_ffff_ff80, 8'b0000_0000);
-        check("unsigned byte read zero extends",
-              32'h0000_0080, 1'b1, 1'b0, MEM_BYTE, MEM_UNSIGNED,
-              64'h0000_0000_0000_0080, 8'b0000_0000);
-
-        check("signed halfword read positive",
-              32'h0000_7fff, 1'b1, 1'b0, MEM_HALF, MEM_SIGNED,
-              64'h0000_0000_0000_7fff, 8'b0000_0000);
-        check("signed halfword read negative",
-              32'h0000_8000, 1'b1, 1'b0, MEM_HALF, MEM_SIGNED,
-              64'hffff_ffff_ffff_8000, 8'b0000_0000);
-        check("unsigned halfword read zero extends",
-              32'h0000_8000, 1'b1, 1'b0, MEM_HALF, MEM_UNSIGNED,
-              64'h0000_0000_0000_8000, 8'b0000_0000);
-
-        check("signed word read sign extends",
-              32'h8000_0000, 1'b1, 1'b0, MEM_WORD, MEM_SIGNED,
-              64'hffff_ffff_8000_0000, 8'b0000_0000);
-        check("unsigned word read zero extends",
-              32'h8000_0000, 1'b1, 1'b0, MEM_WORD, MEM_UNSIGNED,
-              64'h0000_0000_8000_0000, 8'b0000_0000);
-        check("doubleword read passes all bits",
-              64'h89ab_cdef_0123_4567, 1'b1, 1'b0, MEM_DOUBLE, MEM_SIGNED,
-              64'h89ab_cdef_0123_4567, 8'b0000_0000);
-        check("MEM_NONE read returns zero",
-              32'h89ab_cdef, 1'b1, 1'b0, MEM_NONE, MEM_SIGNED,
-              '0, 8'b0000_0000);
-
-        commit = 1'b0;
-        set_ctrl(1'b0, 1'b1, MEM_WORD, MEM_SIGNED);
         #1;
-        tests_run++;
-        if (we !== '0) begin
-            tests_failed++;
-            $fatal(1, "uncommitted store must not assert write enables");
-        end
+        check("idle has no response or write", !res.valid && we == '0);
+
+        request(MREAD, MEM_BYTE, MEM_SIGNED); #1;
+        check("signed byte read returns a valid sign-extended response",
+              res.valid && res.data == 64'hffff_ffff_ffff_ff80 && we == '0);
+        request(MREAD, MEM_HALF, MEM_UNSIGNED); #1;
+        check("unsigned halfword read returns a valid zero-extended response",
+              res.valid && res.data == 64'h0000_0000_0000_8080);
+        request(MFETCH, MEM_WORD, MEM_UNSIGNED); #1;
+        check("fetch is a read response", res.valid && res.data == 64'h0000_0000_0123_8080);
+
+        request(MWRITE, MEM_WORD, MEM_UNSIGNED); #1;
+        check("committed word store enables four byte lanes and has no read response",
+              we == 8'b0000_1111 && !res.valid);
+        commit = 1'b0; #1;
+        check("uncommitted store has no side effect", we == '0 && !res.valid);
+        commit = 1'b1;
+
+        request(MREAD, MEM_DOUBLE, MEM_UNSIGNED);
+        req.address = MTIME_ADDR; #1;
+        check("MTIME read bypasses memory data", res.valid && res.data == mtime);
+        request(MWRITE, MEM_DOUBLE, MEM_UNSIGNED);
+        req.address = MTIMECMP_ADDR; #1;
+        check("MTIMECMP store selects its MMIO write enable", mtimecmp_we && we == '0);
 
         if (tests_failed == 0) begin
             $display("tb_memory_controller: all %0d checks passed", tests_run);
             $finish;
-        end else begin
-            $fatal(1, "tb_memory_controller: %0d of %0d checks failed",
-                   tests_failed, tests_run);
-        end
+        end else
+            $fatal(1, "tb_memory_controller: %0d of %0d checks failed", tests_failed, tests_run);
     end
 endmodule : tb_memory_controller

@@ -6,17 +6,13 @@ module trap_controller(
     input logic               csr_illegal_inst_i,
     input logic               address_misaligned_i,
 
-    // PMA
-    input logic               pma_instruction_fetch_exception_i,
-    input logic               pma_write_exception_i,
-    input logic               pma_read_exception_i,
-    input [XLEN-1:0]          pma_faulting_addr_i,
-
-    // PMP
-    input logic               pmp_write_exception_i,
-    input logic               pmp_read_exception_i,
-    input logic               pmp_instruction_fetch_exception_i,
-    input logic [XLEN-1:0]    pmp_faulting_addr_i,
+    // Memory faults
+    input mem_fault_t [MEM_READ_PORTS-1:0]     mem_fault_i,
+    input logic [MEM_READ_PORTS-1:0][XLEN-1:0] mem_fault_addr_i,
+    input logic                                load_page_fault_i,
+    input logic                                store_page_fault_i,
+    input logic                                fetch_page_fault_i,
+    input logic [XLEN-1:0]                     page_fault_addr_i,
 
     // Interrupts
     input logic [XLEN-1:0]    mip_i,
@@ -32,7 +28,9 @@ module trap_controller(
     input [XLEN-1:0]          pc_i,
     output trap_t             trap_o
 );
-    logic m_is_interruptible, s_is_interruptible;
+    logic m_is_interruptible, s_is_interruptible, write_fault, read_fault, fetch_fault;
+
+    logic [$clog2(MEM_READ_PORTS)-1:0] write_fault_idx, read_fault_idx, fetch_fault_idx;
 
     logic [XLEN-1:0] s_ints, m_ints, medeleg_mod;
 
@@ -92,7 +90,34 @@ module trap_controller(
             trap_o.is_trap = '1;
             trap_o.is_interrupt = '1;
             trap_o.interrupt_cause = S_TIMER;
-        end else
+        end
+
+        // Check the memory faults
+        read_fault = '0;
+        write_fault = '0;
+        fetch_fault = '0;
+        read_fault_idx = '0;
+        write_fault_idx = '0;
+        fetch_fault_idx = '0;
+        for (int i = 0; i < MEM_READ_PORTS; i++) begin
+            // Fetch > write > read
+            case (mem_fault_i[i])
+                FAULT_NONE : ;
+                PMA_FETCH, PMP_FETCH : begin
+                    fetch_fault = '1;
+                    fetch_fault_idx = $clog2(MEM_READ_PORTS)'(unsigned'(i));
+                end
+                PMA_WRITE, PMP_WRITE : begin
+                    write_fault = '1;
+                    write_fault_idx = $clog2(MEM_READ_PORTS)'(unsigned'(i));
+                end
+                PMA_READ, PMP_READ : begin
+                    read_fault = '1;
+                    read_fault_idx = $clog2(MEM_READ_PORTS)'(unsigned'(i));
+                end
+                default : ;
+            endcase
+        end
 
         // This ordering implicitly resolves the mcause ordering
         // I have decided that hardware error is top priority of all synchronous traps.
@@ -103,19 +128,18 @@ module trap_controller(
             if (medeleg_mod[HARDWARE_ERROR] && current_privilege_i < M_MODE) begin
                 trap_o.dest_machine_privilege = S_MODE;
             end
-        end else if (pmp_instruction_fetch_exception_i) begin
-            // Note that PMP takes priority over PMA
+        end else if (fetch_page_fault_i) begin
             trap_o.is_trap = '1;
-            trap_o.exception_cause = INST_ACCESS_FAULT;
-            trap_o.tval = pmp_faulting_addr_i;
+            trap_o.exception_cause = INSTRUCTION_PAGE_FAULT;
+            trap_o.tval = page_fault_addr_i;
 
-            if (medeleg_mod[INST_ACCESS_FAULT] && current_privilege_i < M_MODE) begin
+            if (medeleg_mod[INSTRUCTION_PAGE_FAULT] && current_privilege_i < M_MODE) begin
                 trap_o.dest_machine_privilege = S_MODE;
             end
-        end else if (pma_instruction_fetch_exception_i) begin
+        end else if (fetch_fault) begin
             trap_o.is_trap = '1;
             trap_o.exception_cause = INST_ACCESS_FAULT;
-            trap_o.tval = pma_faulting_addr_i;
+            trap_o.tval = mem_fault_addr_i[fetch_fault_idx];
 
             if (medeleg_mod[INST_ACCESS_FAULT] && current_privilege_i < M_MODE) begin
                 trap_o.dest_machine_privilege = S_MODE;
@@ -163,34 +187,34 @@ module trap_controller(
             if (medeleg_mod[BREAKPOINT] && current_privilege_i < M_MODE) begin
                 trap_o.dest_machine_privilege = S_MODE;
             end
-        end else if (pmp_write_exception_i) begin
+        end else if (store_page_fault_i) begin
+            trap_o.is_trap = '1;
+            trap_o.exception_cause = STORE_PAGE_FAULT;
+            trap_o.tval = page_fault_addr_i;
+
+            if (medeleg_mod[STORE_PAGE_FAULT] && current_privilege_i < M_MODE) begin
+                trap_o.dest_machine_privilege = S_MODE;
+            end
+        end else if (load_page_fault_i) begin
+            trap_o.is_trap = '1;
+            trap_o.exception_cause = LOAD_PAGE_FAULT;
+            trap_o.tval = page_fault_addr_i;
+
+            if (medeleg_mod[LOAD_PAGE_FAULT] && current_privilege_i < M_MODE) begin
+                trap_o.dest_machine_privilege = S_MODE;
+            end
+        end else if (write_fault) begin
             trap_o.is_trap = '1;
             trap_o.exception_cause = STORE_ACCESS_FAULT;
-            trap_o.tval = pmp_faulting_addr_i;
+            trap_o.tval = mem_fault_addr_i[write_fault_idx];
 
             if (medeleg_mod[STORE_ACCESS_FAULT] && current_privilege_i < M_MODE) begin
                 trap_o.dest_machine_privilege = S_MODE;
             end
-        end else if (pma_write_exception_i) begin
-            trap_o.is_trap = '1;
-            trap_o.exception_cause = STORE_ACCESS_FAULT;
-            trap_o.tval = pma_faulting_addr_i;
-
-            if (medeleg_mod[STORE_ACCESS_FAULT] && current_privilege_i < M_MODE) begin
-                trap_o.dest_machine_privilege = S_MODE;
-            end
-        end else if (pmp_read_exception_i) begin
+        end else if (read_fault) begin
             trap_o.is_trap = '1;
             trap_o.exception_cause = LOAD_ACCESS_FAULT;
-            trap_o.tval = pmp_faulting_addr_i;
-
-            if (medeleg_mod[LOAD_ACCESS_FAULT] && current_privilege_i < M_MODE) begin
-                trap_o.dest_machine_privilege = S_MODE;
-            end
-        end else if (pma_read_exception_i) begin
-            trap_o.is_trap = '1;
-            trap_o.exception_cause = LOAD_ACCESS_FAULT;
-            trap_o.tval = pma_faulting_addr_i;
+            trap_o.tval = mem_fault_addr_i[read_fault_idx];
 
             if (medeleg_mod[LOAD_ACCESS_FAULT] && current_privilege_i < M_MODE) begin
                 trap_o.dest_machine_privilege = S_MODE;

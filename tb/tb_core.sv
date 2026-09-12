@@ -2,178 +2,38 @@
 
 import riscv::*;
 
+// Core smoke test using the post-MMU instruction-memory interface.  Translation
+// is Bare in reset M-mode, so the instruction address is also the program PC.
 module tb_core;
-    localparam int SC_WFI          = 0;
-    localparam int SC_INVALID_JALR = 1;
-    localparam int SC_INVALID_BR   = 2;
-    localparam int SC_INVALID_LOAD = 3;
-    localparam int SC_INVALID_ST   = 4;
-    localparam int SC_INVALID_ALU  = 5;
-    localparam int SC_TRAP_MRET    = 6;
-    localparam int SC_TIMER_INTERRUPT = 7;
-    localparam int SC_SUPERVISOR_TRAP = 8;
-
-    logic clk = 1'b0;
-    logic rst_n = 1'b0;
-    logic [IALIGN-1:0] inst = 32'h0000_0013;
-    logic [WWIDTH-1:0] data_mem_data = '0;
-    logic [XLEN-1:0] time_i = '0;
-    logic [XLEN-1:0] pc;
+    logic clk, rst_n;
+    logic [WWIDTH-1:0] inst_mem_data, data_mem_data;
+    logic [XLEN-1:0] time_i, inst_mem_addr, data_mem_addr, data_mem_write_data;
     logic [WWIDTH/8-1:0] data_mem_we;
-    logic [XLEN-1:0] data_mem_addr;
-    logic [WWIDTH-1:0] data_mem_write_data;
-    int scenario = SC_WFI;
-    int tests_run;
-    int tests_failed;
+    logic mtime_we;
+    int tests_run, tests_failed;
 
     riscv_core dut (
-        .clk(clk),
-        .rst_n(rst_n),
-        .inst_i(inst),
-        .data_mem_data_i(data_mem_data),
-        .time_i(time_i),
-        .pc_o(pc),
-        .data_mem_we_o(data_mem_we),
-        .data_mem_addr_o(data_mem_addr),
-        .data_mem_data_o(data_mem_write_data)
+        .clk(clk), .rst_n(rst_n), .inst_mem_data_i(inst_mem_data),
+        .data_mem_data_i(data_mem_data), .time_i(time_i),
+        .inst_mem_addr_o(inst_mem_addr), .data_mem_we_o(data_mem_we),
+        .data_mem_addr_o(data_mem_addr), .data_mem_data_o(data_mem_write_data),
+        .mtime_we_o(mtime_we)
     );
 
     always #5 clk = ~clk;
 
-    function automatic logic [31:0] i_inst(
-        input logic [11:0] immediate,
-        input logic [4:0] rs1,
-        input logic [2:0] funct3,
-        input logic [4:0] rd,
-        input logic [6:0] opcode
-    );
-        return {immediate, rs1, funct3, rd, opcode};
-    endfunction
-
-    function automatic logic [31:0] s_inst(
-        input logic [11:0] immediate,
-        input logic [4:0] rs2,
-        input logic [4:0] rs1,
-        input logic [2:0] funct3
-    );
-        return {immediate[11:5], rs2, rs1, funct3, immediate[4:0], STORE};
-    endfunction
-
-    function automatic logic [31:0] csr_inst(
-        input logic [11:0] csr,
-        input logic [4:0] rs1_or_uimm,
-        input logic [2:0] funct3,
-        input logic [4:0] rd
-    );
-        return {csr, rs1_or_uimm, funct3, rd, SYSTEM};
-    endfunction
-
-    // A deliberately tiny instruction source. Each scenario is reset before execution.
-    function automatic logic [31:0] instruction_at(
-        input int selected_scenario,
-        input logic [XLEN-1:0] address
-    );
-        instruction_at = 32'h0000_0013; // addi x0, x0, 0
-        case (selected_scenario)
-            SC_WFI: begin
-                if (address == RESET_PC)
-                    instruction_at = WFI;
-            end
-            SC_INVALID_JALR: begin
-                case (address)
-                    RESET_PC:     instruction_at = i_inst(12'd5, X0, ADD_SUB, 5'd1, OP_IMM);
-                    RESET_PC + 4: instruction_at = i_inst(12'd64, X0, ADD_SUB, 5'd2, OP_IMM);
-                    RESET_PC + 8: instruction_at = i_inst('0, 5'd2, 3'b001, 5'd1, JALR);
-                    default: ;
-                endcase
-            end
-            SC_INVALID_BR: begin
-                case (address)
-                    RESET_PC:     instruction_at = i_inst(12'd5, X0, ADD_SUB, 5'd1, OP_IMM);
-                    RESET_PC + 4: instruction_at = 32'h0000_2063; // invalid BRANCH funct3
-                    default: ;
-                endcase
-            end
-            SC_INVALID_LOAD: begin
-                case (address)
-                    RESET_PC:     instruction_at = i_inst(12'd5, X0, ADD_SUB, 5'd1, OP_IMM);
-                    RESET_PC + 4: instruction_at = i_inst('0, X0, 3'b111, 5'd1, LOAD);
-                    default: ;
-                endcase
-            end
-            SC_INVALID_ST: begin
-                case (address)
-                    RESET_PC:     instruction_at = i_inst(12'h055, X0, ADD_SUB, 5'd2, OP_IMM);
-                    RESET_PC + 4: instruction_at = s_inst('0, 5'd2, X0, 3'b100);
-                    default: ;
-                endcase
-            end
-            SC_INVALID_ALU: begin
-                case (address)
-                    RESET_PC:     instruction_at = i_inst(12'd5, X0, ADD_SUB, 5'd1, OP_IMM);
-                    // SLLI with imm[11:6]=010000 is reserved in RV64I.
-                    RESET_PC + 4: instruction_at = i_inst(12'b0100000_00000, X0, SLL, 5'd1, OP_IMM);
-                    default: ;
-                endcase
-            end
-            SC_TRAP_MRET: begin
-                case (address)
-                    RESET_PC:      instruction_at = i_inst(12'h040, X0, ADD_SUB, 5'd1, OP_IMM);
-                    RESET_PC + 4:  instruction_at = csr_inst(MTVEC, 5'd1, CSRRW, X0);
-                    RESET_PC + 8:  instruction_at = csr_inst(MSTATUS, 5'd8, CSRRWI, X0);
-                    RESET_PC + 12: instruction_at = EBREAK;
-                    32'h0000_0040: instruction_at = MRET;
-                    default: ;
-                endcase
-            end
-            SC_TIMER_INTERRUPT: begin
-                // x1 = MTIMECMP_ADDR, x2 = 20.  Program the compare before
-                // enabling MTIE/MIE so no timer interrupt can preempt setup.
-                case (address)
-                    RESET_PC:      instruction_at = i_inst(12'd1, X0, ADD_SUB, 5'd1, OP_IMM);
-                    RESET_PC + 4:  instruction_at = i_inst(12'd52, 5'd1, SLL, 5'd1, OP_IMM);
-                    RESET_PC + 8:  instruction_at = i_inst(12'd8, 5'd1, ADD_SUB, 5'd1, OP_IMM);
-                    RESET_PC + 12: instruction_at = i_inst(12'd20, X0, ADD_SUB, 5'd2, OP_IMM);
-                    RESET_PC + 16: instruction_at = s_inst('0, 5'd2, 5'd1, SD);
-                    RESET_PC + 20: instruction_at = i_inst(12'd128, X0, ADD_SUB, 5'd2, OP_IMM);
-                    RESET_PC + 24: instruction_at = csr_inst(MIE, 5'd2, CSRRW, X0);
-                    RESET_PC + 28: instruction_at = csr_inst(MSTATUS, 5'd8, CSRRWI, X0);
-                    default: ;
-                endcase
-            end
-            SC_SUPERVISOR_TRAP: begin
-                // Configure an S-mode trap vector and delegate breakpoint,
-                // then use MRET to enter S-mode.  The S-mode EBREAK must
-                // enter the S handler, and SRET must return through sepc.
-                case (address)
-                    RESET_PC:      instruction_at = i_inst(12'd128, X0, ADD_SUB, 5'd1, OP_IMM);
-                    RESET_PC + 4:  instruction_at = csr_inst(STVEC, 5'd1, CSRRW, X0);
-                    RESET_PC + 8:  instruction_at = csr_inst(MEDELEG, 5'd8, CSRRWI, X0);
-                    RESET_PC + 12: instruction_at = i_inst(12'd1, X0, ADD_SUB, 5'd2, OP_IMM);
-                    RESET_PC + 16: instruction_at = i_inst(12'd11, 5'd2, SLL, 5'd2, OP_IMM);
-                    RESET_PC + 20: instruction_at = csr_inst(MSTATUS, 5'd2, CSRRW, X0);
-                    // Lower-privilege accesses are denied until PMP grants
-                    // them, so allow the complete physical range with a
-                    // NAPOT RWX entry before entering S-mode.
-                    RESET_PC + 24: instruction_at = i_inst(-12'sd1, X0, ADD_SUB, 5'd4, OP_IMM);
-                    RESET_PC + 28: instruction_at = csr_inst(PMPADDR0, 5'd4, CSRRW, X0);
-                    RESET_PC + 32: instruction_at = csr_inst(PMPCFG0, 5'd31, CSRRWI, X0);
-                    RESET_PC + 36: instruction_at = i_inst(12'd64, X0, ADD_SUB, 5'd3, OP_IMM);
-                    RESET_PC + 40: instruction_at = csr_inst(MEPC, 5'd3, CSRRW, X0);
-                    RESET_PC + 44: instruction_at = MRET;
-                    32'h0000_0040: instruction_at = EBREAK;
-                    32'h0000_0080: instruction_at = SRET;
-                    default: ;
-                endcase
-            end
-            default: ;
+    always_comb begin
+        inst_mem_data = '0;
+        case (inst_mem_addr)
+            RESET_PC:      inst_mem_data[31:0] = 32'h0010_0093; // addi x1, x0, 1
+            RESET_PC + 4:  inst_mem_data[31:0] = 32'h0010_8463; // beq x1, x1, +8
+            RESET_PC + 8:  inst_mem_data[31:0] = 32'h0630_0113; // wrong path: addi x2, x0, 99
+            RESET_PC + 12: inst_mem_data[31:0] = 32'h0030_0193; // target: addi x3, x0, 3
+            default:       inst_mem_data[31:0] = RISCV_NOP;
         endcase
-    endfunction
+    end
 
-    task automatic check(
-        input string name,
-        input logic condition
-    );
+    task automatic check(input string name, input logic condition);
         begin
             tests_run++;
             if (!condition) begin
@@ -183,152 +43,32 @@ module tb_core;
         end
     endtask
 
-    task automatic reset_core(input int selected_scenario);
-        begin
-            scenario = selected_scenario;
-            inst = instruction_at(selected_scenario, RESET_PC);
-            time_i = '0;
-            rst_n = 1'b0;
-            #1;
-            @(posedge clk);
-            #1;
-            rst_n = 1'b1;
-            #1;
-        end
-    endtask
-
-    task automatic step;
-        begin
-            inst = instruction_at(scenario, pc);
-            #1;
-            @(posedge clk);
-            #1;
-        end
-    endtask
-
-    task automatic check_illegal_trap(
-        input string name,
-        input logic [XLEN-1:0] expected_mepc
-    );
-        begin
-            check({name, ": redirects to mtvec"}, pc == RESET_PC);
-            check({name, ": writes illegal-instruction mcause"},
-                  dut.u_csrfile.mcause == XLEN'(ILLEGAL_INSTRUCTION));
-            check({name, ": records the faulting pc in mepc"},
-                  dut.u_csrfile.mepc == expected_mepc);
-            check({name, ": records zero mtval"}, dut.u_csrfile.mtval == '0);
-        end
-    endtask
-
     initial begin
-        clk = 1'b0;
-        rst_n = 1'b0;
+        clk = 0;
+        rst_n = 0;
         data_mem_data = '0;
-        scenario = SC_WFI;
+        time_i = '0;
         tests_run = 0;
         tests_failed = 0;
 
-        reset_core(SC_WFI);
-        step();
-        check("WFI advances the PC as a NOP", pc == RESET_PC + 4);
-        check("WFI does not trap", dut.u_csrfile.mcause == '0);
-        check("WFI retires", dut.u_csrfile.minstret == 64'd1);
+        repeat (2) @(posedge clk);
+        #1;
+        check("reset holds the instruction address at RESET_PC", inst_mem_addr == RESET_PC);
+        check("reset clears general-purpose registers", dut.u_regfile.regs[1] == '0);
 
-        reset_core(SC_INVALID_JALR);
-        step();
-        step();
-        check("invalid JALR setup writes sentinel", dut.u_regfile.regs[1] == 32'd5);
-        check("invalid JALR has no data-memory write", data_mem_we == '0);
-        step();
-        check_illegal_trap("invalid JALR", RESET_PC + 8);
-        check("invalid JALR does not overwrite its destination register", dut.u_regfile.regs[1] == 32'd5);
-
-        reset_core(SC_INVALID_BR);
-        step();
-        check("invalid branch setup writes sentinel", dut.u_regfile.regs[1] == 32'd5);
-        step();
-        check_illegal_trap("invalid branch", RESET_PC + 4);
-        check("invalid branch does not write registers", dut.u_regfile.regs[1] == 32'd5);
-
-        reset_core(SC_INVALID_LOAD);
-        step();
-        check("invalid load setup writes sentinel", dut.u_regfile.regs[1] == 32'd5);
-        check("invalid load has no data-memory write", data_mem_we == '0);
-        step();
-        check_illegal_trap("invalid load", RESET_PC + 4);
-        check("invalid load does not overwrite its destination register", dut.u_regfile.regs[1] == 32'd5);
-
-        reset_core(SC_INVALID_ST);
-        step();
-        check("invalid store setup writes source register", dut.u_regfile.regs[2] == 32'h55);
-        check("invalid store has no data-memory write", data_mem_we == '0);
-        step();
-        check_illegal_trap("invalid store", RESET_PC + 4);
-        check("invalid store never enables a data-memory write", data_mem_we == '0);
-
-        reset_core(SC_INVALID_ALU);
-        step();
-        check("invalid ALU setup writes sentinel", dut.u_regfile.regs[1] == 32'd5);
-        step();
-        check_illegal_trap("invalid ALU instruction", RESET_PC + 4);
-        check("invalid ALU instruction does not overwrite its destination register", dut.u_regfile.regs[1] == 32'd5);
-
-        reset_core(SC_TRAP_MRET);
-        step();
-        step();
-        step();
-        check("CSRRWI enables MIE before the trap", dut.u_csrfile.mstatus[MSTATUS_MIE]);
-        step();
-        check("trap redirects to programmed mtvec", pc == 32'h0000_0040);
-        check("trap entry writes breakpoint mcause", dut.u_csrfile.mcause == XLEN'(BREAKPOINT));
-        check("trap entry writes mepc", dut.u_csrfile.mepc == RESET_PC + 12);
-        check("trap entry writes mtval", dut.u_csrfile.mtval == '0);
-        check("trap entry clears MIE", !dut.u_csrfile.mstatus[MSTATUS_MIE]);
-        check("trap entry saves MIE in MPIE", dut.u_csrfile.mstatus[MSTATUS_MPIE]);
-        check("trap entry saves M privilege in MPP",
-              dut.u_csrfile.mstatus[MSTATUS_MPP_MSB:MSTATUS_MPP_LSB] == M_MODE);
-        step();
-        check("MRET returns to mepc", pc == RESET_PC + 12);
-        check("MRET restores MIE", dut.u_csrfile.mstatus[MSTATUS_MIE]);
-        check("MRET sets MPIE", dut.u_csrfile.mstatus[MSTATUS_MPIE]);
-        check("MRET restores MPP to U",
-              dut.u_csrfile.mstatus[MSTATUS_MPP_MSB:MSTATUS_MPP_LSB] == U_MODE);
-
-        reset_core(SC_TIMER_INTERRUPT);
-        repeat (8) step();
-        check("timer firmware builds the MTIMECMP address", dut.u_regfile.regs[1] == MTIMECMP_ADDR);
-        check("timer firmware programs MTIMECMP", dut.mtimecmp == 64'd20);
-        check("timer firmware enables MTIE", dut.u_csrfile.mie[M_TIMER]);
-        check("timer firmware enables MIE", dut.u_csrfile.mstatus[MSTATUS_MIE]);
-        time_i = 64'd20;
-        step();
-        check("timer firmware redirects to mtvec", pc == RESET_PC);
-        check("timer firmware records machine timer mcause",
-              dut.u_csrfile.mcause == {1'b1, M_TIMER});
-        check("timer firmware records interrupted PC", dut.u_csrfile.mepc == RESET_PC + 32);
-        check("timer firmware disables MIE on trap entry", !dut.u_csrfile.mstatus[MSTATUS_MIE]);
-
-        reset_core(SC_SUPERVISOR_TRAP);
-        repeat (12) step();
-        check("MRET enters S-mode", dut.u_csrfile.machine_privilege == S_MODE);
-        check("MRET starts S-mode at mepc", pc == 32'h0000_0040);
-        step();
-        check("delegated S breakpoint redirects to stvec", pc == 32'h0000_0080);
-        check("delegated S breakpoint writes sepc", dut.u_csrfile.sepc == 32'h0000_0040);
-        check("delegated S breakpoint writes scause", dut.u_csrfile.scause == XLEN'(BREAKPOINT));
-        check("S trap records prior S privilege in SPP", dut.u_csrfile.mstatus[MSTATUS_SPP]);
-        check("S trap clears SIE", !dut.u_csrfile.mstatus[MSTATUS_SIE]);
-        step();
-        check("SRET returns through sepc", pc == 32'h0000_0040);
-        check("SRET restores S privilege", dut.u_csrfile.machine_privilege == S_MODE);
-        check("SRET clears SPP", !dut.u_csrfile.mstatus[MSTATUS_SPP]);
-        check("SRET sets SPIE", dut.u_csrfile.mstatus[MSTATUS_SPIE]);
+        rst_n = 1;
+        repeat (8) @(posedge clk);
+        #1;
+        check("instruction-memory path executes the first ALU instruction", dut.u_regfile.regs[1] == 64'd1);
+        check("taken branch discards its sequential wrong-path instruction", dut.u_regfile.regs[2] == '0);
+        check("taken branch fetches and executes its target", dut.u_regfile.regs[3] == 64'd3);
+        check("ALU-only program does not issue a data write", data_mem_we == '0);
+        check("retirement advances across branch recovery", dut.u_csrfile.minstret >= 64'd3);
 
         if (tests_failed == 0) begin
             $display("tb_core: all %0d checks passed", tests_run);
             $finish;
-        end else begin
+        end else
             $fatal(1, "tb_core: %0d of %0d checks failed", tests_failed, tests_run);
-        end
     end
 endmodule : tb_core

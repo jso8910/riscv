@@ -14,9 +14,9 @@ module tb_memory_controller_sram;
     logic [TEST_AWIDTH-1:0]       address_2;
     logic [TEST_DWIDTH-1:0]       store_data;
     logic [TEST_DWIDTH-1:0]       raw_data;
-    logic [TEST_DWIDTH-1:0]       load_data;
     logic [(TEST_DWIDTH/8)-1:0]   we;
-    ctrl_t                        ctrl;
+    mem_req_t                     req;
+    mem_res_t                     res;
     logic                         commit;
 
     int tests_run;
@@ -39,10 +39,14 @@ module tb_memory_controller_sram;
 
     memory_controller controller (
         .data_i(raw_data),
-        .ctrl_i(ctrl),
+        .mtime_i('0),
+        .mtimecmp_i('0),
+        .mem_req_i(req),
         .commit_i(commit),
-        .data_o(load_data),
-        .we_o(we)
+        .res_o(res),
+        .we_o(we),
+        .mtime_we_o(),
+        .mtimecmp_we_o()
     );
 
     always #5 clk = ~clk;
@@ -54,11 +58,12 @@ module tb_memory_controller_sram;
         input mem_signed_t mem_signed
     );
         begin
-            ctrl = '0;
-            ctrl.mem_read = mem_read;
-            ctrl.mem_write = mem_write;
-            ctrl.mem_size = mem_size;
-            ctrl.mem_signed = mem_signed;
+            req = '0;
+            req.valid = mem_read || mem_write;
+            req.size = mem_size;
+            req.mem_signed = mem_signed;
+            req.op = mem_write ? MWRITE : MREAD;
+            req.op_original = req.op;
         end
     endtask
 
@@ -71,6 +76,7 @@ module tb_memory_controller_sram;
             address_1 = addr;
             store_data = data;
             set_ctrl(1'b0, 1'b1, mem_size, MEM_SIGNED);
+            req.address = addr;
             #1;
             @(posedge clk);
             #1;
@@ -88,6 +94,7 @@ module tb_memory_controller_sram;
             address_1 = addr;
             store_data = data;
             set_ctrl(1'b0, 1'b0, mem_size, MEM_SIGNED);
+            req.address = addr;
             #1;
             @(posedge clk);
             #1;
@@ -105,13 +112,14 @@ module tb_memory_controller_sram;
         begin
             address_1 = addr;
             set_ctrl(1'b1, 1'b0, mem_size, mem_signed);
+            req.address = addr;
             #1;
 
             tests_run++;
-            if (load_data !== expected) begin
+            if (!res.valid || res.data !== expected) begin
                 tests_failed++;
                 $fatal(1, "%s: expected load 0x%016x, got 0x%016x",
-                       name, expected, load_data);
+                       name, expected, res.data);
             end
         end
     endtask
@@ -124,6 +132,7 @@ module tb_memory_controller_sram;
         begin
             address_1 = addr;
             set_ctrl(1'b0, 1'b0, MEM_NONE, MEM_SIGNED);
+            req.address = addr;
             #1;
 
             tests_run++;
@@ -142,13 +151,14 @@ module tb_memory_controller_sram;
         begin
             address_1 = addr;
             set_ctrl(1'b0, 1'b0, MEM_WORD, MEM_SIGNED);
+            req.address = addr;
             #1;
 
             tests_run++;
-            if (load_data !== '0) begin
+            if (res.valid || res.data !== '0) begin
                 tests_failed++;
                 $fatal(1, "%s data: expected 0x%016x, got 0x%016x",
-                       name, '0, load_data);
+                       name, '0, res.data);
             end
             if (we !== '0) begin
                 tests_failed++;
@@ -172,7 +182,7 @@ module tb_memory_controller_sram;
         address_1 = TEST_START;
         address_2 = TEST_START;
         store_data = '0;
-        ctrl = '0;
+        req = '0;
         commit = 1'b1;
         tests_run = 0;
         tests_failed = 0;

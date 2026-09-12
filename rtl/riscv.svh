@@ -16,10 +16,13 @@ package riscv;
     localparam logic [PHYS_ADDR_WIDTH-1:0] MTIME_ADDR   = 'h10_00_00_00_00_00_00;
     localparam logic [PHYS_ADDR_WIDTH-1:0] MTIMECMP_ADDR   = 'h10_00_00_00_00_00_08;
 
+    localparam int MEM_READ_PORTS = 2;
     localparam int TLB_SIZE = 16;
     localparam int PTE_LEVELS = 3;
     localparam logic [XLEN-1:0] PTESIZE = 8;
     localparam logic [XLEN-1:0] PAGESIZE = 1 << 12;  // 4 KiB pages
+
+    localparam logic [IALIGN-1:0] RISCV_NOP = 'h00000013;
 
     // satp fields
     localparam int SATP_MODE_MSB = 63;
@@ -28,6 +31,11 @@ package riscv;
     localparam int SATP_ASID_LSB = 44;
     localparam int SATP_PPN_MSB = 43;
     localparam int SATP_PPN_LSB = 0;
+
+    typedef enum logic [3:0] {
+        MODE_BARE = '0,
+        MODE_SV39 = 'd8
+    } satp_mode_t;
 
     // pte (page table entry) fields
     localparam int PTE_D = 7;
@@ -38,6 +46,8 @@ package riscv;
     localparam int PTE_W = 2;
     localparam int PTE_R = 1;
     localparam int PTE_V = 0;
+    localparam int PTE_RESERVED_MSB = 63;
+    localparam int PTE_RESERVED_LSB = 54;
 
     typedef logic [XLEN-1:0] uintxlen_t;
 
@@ -76,8 +86,7 @@ package riscv;
     typedef enum logic [1:0] {
         MREAD,  // read
         MWRITE, // write
-        MFETCH, // instruction fetch
-        PTW_READ    // should not be set for input to TLB, only to physical memory checker
+        MFETCH // instruction fetch
     } mem_op_t;
 
     typedef enum logic [2:0] {
@@ -88,7 +97,13 @@ package riscv;
         MEM_DOUBLE
     } mem_size_t;
 
-    typedef enum logic [3:0] {
+    typedef enum logic {
+        MEM_UNSIGNED,
+        MEM_SIGNED
+    } mem_signed_t;
+
+    typedef enum logic [2:0] {
+        FAULT_NONE,
         PMA_FETCH,
         PMA_WRITE,
         PMA_READ,
@@ -99,17 +114,28 @@ package riscv;
 
     typedef struct packed {
         logic valid;
+        logic mem_access_requested;
         logic [XLEN-1:0] address;
+        logic [XLEN-1:0] virtual_address;
         mem_size_t size;
-        mem_op_t kind;
+        mem_signed_t mem_signed;
+        // op and op_original are very similar. The distinction is that op is the actual operation,
+        // relevant to the permissions of the PMA/PMP, while op_original is the original operation
+        // that resulted in this. This is relevant for page table walks, where they are treated as
+        // reads, but if they result in PMA/PMP issues, they raise an access-fault of the original
+        // access type.
+        // while
+        mem_op_t op;
+        mem_op_t op_original;
         machine_privilege_t effective_privilege;
     } mem_req_t;
 
     typedef struct packed {
+        // valid is only used for reads/fetches. For writes, it is a static 0
+        // Currently, since writes are single cycle and guaranteed to complete in that cycle, it is
+        // not necessary to have the valid signal.
         logic valid;
         logic [XLEN-1:0] data;
-        mem_fault_t fault;
-        logic [XLEN-1:0] fault_addr;
     } mem_res_t;
 
     // ================
@@ -159,6 +185,13 @@ package riscv;
     localparam int MSTATUS_MPRV = 17;
     localparam int MSTATUS_SUM = 18;
     localparam int MSTATUS_MXR = 19;
+    localparam int MSTATUS_TVM = 20;
+    localparam int MSTATUS_TW = 21;
+    localparam int MSTATUS_TSR = 22;
+    localparam int MSTATUS_UXL_MSB = 33;
+    localparam int MSTATUS_UXL_LSB = 32;
+    localparam int MSTATUS_SXL_MSB = 35;
+    localparam int MSTATUS_SXL_LSB = 34;
 
     // ========
     // counters
@@ -226,6 +259,8 @@ package riscv;
 
     // ### Machine configuration
     localparam logic [11:0] MENVCFG        = 'h30A;
+    localparam int MENVCFG_STCE            = 63;
+    localparam logic [XLEN-1:0] MENVCFG_WRITABLE_MASK = 64'h8000_0000_0000_0001;
     localparam logic [11:0] MSECCFG        = 'h747;
 
     // ### Physical memory protection - defined with just first and last registers of each space
@@ -273,13 +308,11 @@ package riscv;
 
     // mstatus: all 0s, but MPP is reset to equal M (11) so an MRET before the first TRAP
     // doesn't drop the mode to user.
-    localparam logic [XLEN-1:0] MSTATUS_VAL  = 'h0000_1800;
+    // RV64 requires both supported XLEN fields to read as 2 (64-bit).
+    localparam logic [XLEN-1:0] MSTATUS_VAL  = 64'h0000_000a_0000_1800;
     localparam logic [XLEN-1:0] MSTATUSH_VAL = 'h0;
     // Writable mstatus bits modeled by this core.  MPP supports M, S, and U;
     // the reserved encoding is legalized to M.
-    // TODO: Add SUM (18) and MXR (19) when page translation is implemented.
-    // SUM permits S-mode loads/stores to U pages; MXR permits loads from
-    // execute-only pages.
     // TODO: Add TVM (20), TW (21), and TSR (22) when enforcing M-mode
     // restrictions on S-mode. TVM restricts satp/SFENCE.VMA, TW restricts
     // WFI below M-mode, and TSR restricts SRET in S-mode.
@@ -290,7 +323,12 @@ package riscv;
                                                         | (XLEN'(1) << MSTATUS_SPP)
                                                         | (XLEN'(1) << MSTATUS_SPIE)
                                                         | (XLEN'(1) << MSTATUS_MIE)
-                                                        | (XLEN'(1) << MSTATUS_SIE);
+                                                        | (XLEN'(1) << MSTATUS_SIE)
+                                                        | (XLEN'(1) << MSTATUS_SUM)
+                                                        | (XLEN'(1) << MSTATUS_MXR)
+                                                        | (XLEN'(1) << MSTATUS_TVM)
+                                                        | (XLEN'(1) << MSTATUS_TW)
+                                                        | (XLEN'(1) << MSTATUS_TSR);
 
     // mtvec will, by default, have the base address as RESET_PC
     localparam logic [XLEN-1:0] MVEC_VAL = {RESET_PC[XLEN-1:2], TRAP_DIRECT};
@@ -298,7 +336,13 @@ package riscv;
     // Bits of mstatus exposed by the currently modeled portion of sstatus.
     localparam logic [XLEN-1:0] SSTATUS_MASK = (XLEN'(1) << MSTATUS_SIE)
                                                | (XLEN'(1) << MSTATUS_SPIE)
-                                               | (XLEN'(1) << MSTATUS_SPP);
+                                               | (XLEN'(1) << MSTATUS_SPP)
+                                               | (XLEN'(1) << MSTATUS_SUM)
+                                               | (XLEN'(1) << MSTATUS_MXR)
+                                               | (XLEN'(3) << MSTATUS_UXL_LSB);
+    // UXL is visible through sstatus in RV64 but is read-only.
+    localparam logic [XLEN-1:0] SSTATUS_WRITE_MASK = SSTATUS_MASK
+                                                     & ~(XLEN'(3) << MSTATUS_UXL_LSB);
 
 
     // ======================
@@ -395,6 +439,7 @@ package riscv;
     localparam logic [31:0] MRET   = 32'h3020_0073;
     localparam logic [31:0] SRET   = 32'h1020_0073;
     localparam logic [31:0] WFI    = 32'h1050_0073;
+    localparam logic [31:0] SF_VMA = 32'b0001001_?????_?????_000_00000_1110011;
     // todo: not implemented yet
     // localparam logic [31:0] SRET   = 32'h;
 
@@ -445,11 +490,6 @@ package riscv;
         WB_IMM,                 // Immediate value (LUI)
         WB_CSR                  // CSR value
     } wb_sel_t;
-
-    typedef enum logic {
-        MEM_UNSIGNED,
-        MEM_SIGNED
-    } mem_signed_t;
 
     typedef enum logic [2:0] {
         COND_EQ,
@@ -510,6 +550,9 @@ package riscv;
         logic [11:0]           csr_addr;
         csr_wb_sel_t           csr_wb_sel;
         logic                  csr_imm;
+
+        logic                  tlb_invalidate;
+        logic                  wfi;
 
         logic                  ebreak;
         logic                  ecall;

@@ -1,40 +1,30 @@
 import riscv::*;
 
 module physical_memory_checker (
-    input machine_privilege_t  current_privilege_i,
+    // input machine_privilege_t  current_privilege_i,
     input logic [7:0]          pmp_cfg_i [0:63],
     input logic [XLEN-1:0]     pmp_addr_i [0:63],
-    input logic [XLEN-1:0]     pc_i,
-    input ctrl_t               ctrl_i,
-    input logic [XLEN-1:0]     data_mem_addr_i,
-    input logic [XLEN-1:0]     mstatus_i,
-    output logic               pma_instruction_fetch_exception_o,
-    output logic               pma_write_exception_o,
-    output logic               pma_read_exception_o,
-    output logic               hardware_fault_o,
-    output logic [XLEN-1:0]    pma_faulting_addr_o,
-    output logic               pmp_write_exception_o,
-    output logic               pmp_read_exception_o,
-    output logic               pmp_instruction_fetch_exception_o,
-    output logic [XLEN-1:0]    pmp_faulting_addr_o
+    input mem_req_t [MEM_READ_PORTS-1:0]      mem_req_i,
+    output mem_fault_t [MEM_READ_PORTS-1:0]   fault_o,
+    output logic [MEM_READ_PORTS-1:0][XLEN-1:0] fault_addr_o
 );
-    logic [XLEN-1:0] access_addresses [0:7];
+    logic [XLEN-1:0] access_addresses [0:1] [0:7];
     /* verilator lint_off ASCRANGE */
     pma_cfg_t [0:PMA_ENTRY_COUNT-1] pma_cfgs;
     /* verilator lint_on ASCRANGE */
 
-    logic access_pmp_matched, pc_pmp_matched, all_access_bytes, all_pc_bytes,
-          bypass_permissions;
-    logic [PHYS_ADDR_WIDTH:0] bottom_of_range, top_of_range, access_pmp_range_btm, access_pmp_range_top,
-                     pc_pmp_range_btm, pc_pmp_range_top;
-    logic [5:0] access_matching_pmp_idx, pc_matching_pmp_idx, n_trailing_1s;
+    logic pmp_matched [0:1], pmp_all_bytes [0:1],
+          bypass_permissions [0:1];
+    logic [PHYS_ADDR_WIDTH:0] bottom_of_range [0:1], top_of_range [0:1],
+                              pmp_range_btm [0:1], pmp_range_top [0:1];
+    logic [5:0] matching_pmp_idx [0:1], n_trailing_1s [0:1];
 
-    logic [3:0] access_width;
+    logic [3:0] access_width [0:1];
 
-    machine_privilege_t effective_privilege;
-    assign effective_privilege = machine_privilege_t'(current_privilege_i == M_MODE && mstatus_i[MSTATUS_MPRV] ? 
-                                mstatus_i[MSTATUS_MPP_MSB:MSTATUS_MPP_LSB] :
-                                current_privilege_i);
+    // machine_privilege_t effective_privilege;
+    // assign effective_privilege = machine_privilege_t'(current_privilege_i == M_MODE && mstatus_i[MSTATUS_MPRV] ? 
+    //                             mstatus_i[MSTATUS_MPP_MSB:MSTATUS_MPP_LSB] :
+    //                             current_privilege_i);
 
     // Static platform PMA map: executable main memory followed by unallocated
     // address space.
@@ -113,291 +103,539 @@ module physical_memory_checker (
         end
     endfunction
 
-    always_comb begin
-        pma_faulting_addr_o = '0;
-        hardware_fault_o = '0;
-
-        case (ctrl_i.mem_size)
-            MEM_BYTE : begin
-                access_width = 4'd1;
-                access_addresses[0] = data_mem_addr_i;
-                access_addresses[1] = data_mem_addr_i;
-                access_addresses[2] = data_mem_addr_i;
-                access_addresses[3] = data_mem_addr_i;
-                access_addresses[4] = data_mem_addr_i;
-                access_addresses[5] = data_mem_addr_i;
-                access_addresses[6] = data_mem_addr_i;
-                access_addresses[7] = data_mem_addr_i;
-                if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
-                    hardware_fault_o = '1;
-                end
-            end
-            MEM_HALF : begin
-                access_width = 4'd2;
-                access_addresses[0] = data_mem_addr_i;
-                access_addresses[1] = data_mem_addr_i + uintxlen_t'(1);
-                access_addresses[2] = data_mem_addr_i;
-                access_addresses[3] = data_mem_addr_i;
-                access_addresses[4] = data_mem_addr_i;
-                access_addresses[5] = data_mem_addr_i;
-                access_addresses[6] = data_mem_addr_i;
-                access_addresses[7] = data_mem_addr_i;
-                if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
-                    hardware_fault_o = '1;
-                end
-            end
-            MEM_WORD : begin
-                access_width = 4'd4;
-                access_addresses[0] = data_mem_addr_i;
-                access_addresses[1] = data_mem_addr_i + uintxlen_t'(1);
-                access_addresses[2] = data_mem_addr_i + uintxlen_t'(2);
-                access_addresses[3] = data_mem_addr_i + uintxlen_t'(3);
-                access_addresses[4] = data_mem_addr_i;
-                access_addresses[5] = data_mem_addr_i;
-                access_addresses[6] = data_mem_addr_i;
-                access_addresses[7] = data_mem_addr_i;
-                if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
-                    hardware_fault_o = '1;
-                end
-            end
-            MEM_DOUBLE : begin
-                access_width = 4'd8;
-                access_addresses[0] = data_mem_addr_i;
-                access_addresses[1] = data_mem_addr_i + uintxlen_t'(1);
-                access_addresses[2] = data_mem_addr_i + uintxlen_t'(2);
-                access_addresses[3] = data_mem_addr_i + uintxlen_t'(3);
-                access_addresses[4] = data_mem_addr_i + uintxlen_t'(4);
-                access_addresses[5] = data_mem_addr_i + uintxlen_t'(5);
-                access_addresses[6] = data_mem_addr_i + uintxlen_t'(6);
-                access_addresses[7] = data_mem_addr_i + uintxlen_t'(7);
-                if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
-                    hardware_fault_o = '1;
-                end
-            end
-            MEM_NONE : begin
-                access_width = 4'd0;
-                access_addresses[0] = data_mem_addr_i;
-                access_addresses[1] = data_mem_addr_i;
-                access_addresses[2] = data_mem_addr_i;
-                access_addresses[3] = data_mem_addr_i;
-                access_addresses[4] = data_mem_addr_i;
-                access_addresses[5] = data_mem_addr_i;
-                access_addresses[6] = data_mem_addr_i;
-                access_addresses[7] = data_mem_addr_i;
-                // MEM_NONE should only be true if there isn't a memory read or memory
-                // write
-                if (ctrl_i.mem_read || ctrl_i.mem_write) begin
-                    hardware_fault_o = '1;
-                end
-            end
-            default: $fatal(1);
+    function automatic mem_fault_t pma_fault(input mem_op_t op);
+        case (op)
+            MREAD : return PMA_READ;
+            MFETCH : return PMA_FETCH;
+            MWRITE : return PMA_WRITE;
+            default : $fatal(1);
         endcase
+    endfunction
 
-        // =================================
-        // Physical memory attribution logic
-        // =================================
-        // Note, importantly, the order of checks: read -> write -> instruction fetch
-        // This is used because of the ordering of checks in trap_controller, where an instruction
-        // fetch fault is raised over a write fault is raised over a read fault. The PMA checker
-        // must check in that order so the correct address is put in pma_faulting_addr.
-        
-        
-
-        pma_write_exception_o = '0;
-        pma_read_exception_o = '0;
-        if (ctrl_i.mem_read) begin
-            // We iterate in reverse so the lowest failing byte is put in pma_faulting_addr
-            for (int i = int'(access_width) - 1; i >= 0; i--) begin
-                if (!pma_readable(access_addresses[i])) begin
-                    pma_read_exception_o = '1;
-                    pma_faulting_addr_o = access_addresses[i];
-                end
-            end
-        end
-        if (ctrl_i.mem_write) begin
-            for (int i = int'(access_width) - 1; i >= 0; i--) begin
-                if (!pma_writable(access_addresses[i])) begin
-                    pma_write_exception_o = '1;
-                    pma_faulting_addr_o = access_addresses[i];
-                end
-            end
-        end
-
-        case (pma_alignment(access_addresses[0]))
-            UNALIGNED : ;
-            // To check an access is double aligned, we have the condition that a memory read is
-            // double aligned IFF the first byte's addr[2:0] == 0. The access must also be MEM_DOUBLE
-            DOUBLE_ALIGNED : begin
-                if (access_addresses[0][2:0] != 3'b0 || access_width != 8) begin
-                    if (ctrl_i.mem_read) begin
-                        pma_read_exception_o = '1;
-                        pma_faulting_addr_o = access_addresses[0];
-                    end
-                    if (ctrl_i.mem_write) begin
-                        pma_write_exception_o = '1;
-                        pma_faulting_addr_o = access_addresses[0];
-                    end
-                end
-            end
-            default : ;
+    function automatic mem_fault_t pmp_fault(input mem_op_t op);
+        case (op)
+            MREAD : return PMP_READ;
+            MFETCH : return PMP_FETCH;
+            MWRITE : return PMP_WRITE;
+            default : $fatal(1);
         endcase
+    endfunction
 
-        pma_instruction_fetch_exception_o = '0;
-        for (int i = 3; i >= 0; i--) begin
-            pma_instruction_fetch_exception_o = pma_instruction_fetch_exception_o || (!pma_readable(pc_i + uintxlen_t'(i)) || !pma_main(pc_i + uintxlen_t'(i)));
-            
-            if (!pma_readable(pc_i + uintxlen_t'(i)) || !pma_main(pc_i + uintxlen_t'(i))) begin
-                pma_faulting_addr_o = pc_i + uintxlen_t'(i);
-            end
-        end
+    genvar i;
+    generate
+        for (i = 0; i < MEM_READ_PORTS; i++) begin : gen_pmc
+            always_comb begin
+                fault_o[i] = FAULT_NONE;
+                fault_addr_o[i] = mem_req_i[i].virtual_address;
+                access_width[i] = '0;
+                for (int j = 0; j < 8; j++)
+                    access_addresses[i][j] = 0;
+                pmp_range_btm[i] = 0;
+                pmp_range_top[i] = 0;
+                matching_pmp_idx[i] = 63;
+                pmp_matched[i] = 0;
+                bottom_of_range[i] = 0;
+                top_of_range[i] = 0;
+                n_trailing_1s[i] = 0;
+                bypass_permissions[i] = 0;
+                pmp_all_bytes[i] = 1;
+                if (mem_req_i[i].valid) begin
+                    case (mem_req_i[i].size)
+                        MEM_BYTE : begin
+                            access_width[i] = 4'd1;
+                            access_addresses[i][0] = mem_req_i[i].address;
+                            access_addresses[i][1] = mem_req_i[i].address;
+                            access_addresses[i][2] = mem_req_i[i].address;
+                            access_addresses[i][3] = mem_req_i[i].address;
+                            access_addresses[i][4] = mem_req_i[i].address;
+                            access_addresses[i][5] = mem_req_i[i].address;
+                            access_addresses[i][6] = mem_req_i[i].address;
+                            access_addresses[i][7] = mem_req_i[i].address;
+                        end
+                        MEM_HALF : begin
+                            access_width[i] = 4'd2;
+                            access_addresses[i][0] = mem_req_i[i].address;
+                            access_addresses[i][1] = mem_req_i[i].address + uintxlen_t'(1);
+                            access_addresses[i][2] = mem_req_i[i].address;
+                            access_addresses[i][3] = mem_req_i[i].address;
+                            access_addresses[i][4] = mem_req_i[i].address;
+                            access_addresses[i][5] = mem_req_i[i].address;
+                            access_addresses[i][6] = mem_req_i[i].address;
+                            access_addresses[i][7] = mem_req_i[i].address;
+                        end
+                        MEM_WORD : begin
+                            access_width[i] = 4'd4;
+                            access_addresses[i][0] = mem_req_i[i].address;
+                            access_addresses[i][1] = mem_req_i[i].address + uintxlen_t'(1);
+                            access_addresses[i][2] = mem_req_i[i].address + uintxlen_t'(2);
+                            access_addresses[i][3] = mem_req_i[i].address + uintxlen_t'(3);
+                            access_addresses[i][4] = mem_req_i[i].address;
+                            access_addresses[i][5] = mem_req_i[i].address;
+                            access_addresses[i][6] = mem_req_i[i].address;
+                            access_addresses[i][7] = mem_req_i[i].address;
+                        end
+                        MEM_DOUBLE : begin
+                            access_width[i] = 4'd8;
+                            access_addresses[i][0] = mem_req_i[i].address;
+                            access_addresses[i][1] = mem_req_i[i].address + uintxlen_t'(1);
+                            access_addresses[i][2] = mem_req_i[i].address + uintxlen_t'(2);
+                            access_addresses[i][3] = mem_req_i[i].address + uintxlen_t'(3);
+                            access_addresses[i][4] = mem_req_i[i].address + uintxlen_t'(4);
+                            access_addresses[i][5] = mem_req_i[i].address + uintxlen_t'(5);
+                            access_addresses[i][6] = mem_req_i[i].address + uintxlen_t'(6);
+                            access_addresses[i][7] = mem_req_i[i].address + uintxlen_t'(7);
+                        end
+                        MEM_NONE : begin
+                            // Should not have a valid MEM_NONE access
+                            $fatal(1);
+                        end
+                        default: $fatal(1);
+                    endcase
 
-        // ================================
-        // Physical memory protection logic
-        // ================================
-        pmp_read_exception_o = '0;
-        pmp_write_exception_o = '0;
-        pmp_instruction_fetch_exception_o = '0;
-        pmp_faulting_addr_o = '0;
-        all_access_bytes = 1;
-        all_pc_bytes = 1;
-        // First, we want to find the lowest PMP which matches *any* of the bytes of the memory
-        // access. This is the priority rule outlined in Privileged Architecture 2.1.7.1.3. Priority
-        // and Matching Logic
-        access_matching_pmp_idx = 63;
-        pc_matching_pmp_idx = 63;
-        access_pmp_matched = 0;
-        pc_pmp_matched = 0;
-        bottom_of_range = 0;
-        top_of_range = 0;
-        n_trailing_1s = 0;
-        access_pmp_range_btm = 0;
-        access_pmp_range_top = 0;
-        pc_pmp_range_btm = 0;
-        pc_pmp_range_top = 0;
+                    // =========
+                    // PMA logic
+                    // =========
+                    case (mem_req_i[i].op)
+                        MFETCH : begin
+                            for (int j = int'(access_width[i] - 1); j >= 0; j--) begin
+                                if (!pma_readable(mem_req_i[i].address + uintxlen_t'(j)) || !pma_main(mem_req_i[i].address + uintxlen_t'(j))) begin
+                                    // The fault should correspond with the *original* operation
+                                    // (differs in the case of a translation lookaside buffer miss/page
+                                    // table walk)
+                                    fault_o[i] = pma_fault(mem_req_i[i].op_original);
+                                end
+                            end
+                        end
+                        MREAD : begin
+                            for (int j = int'(access_width[i] - 1); j >= 0; j--) begin
+                                if (!pma_readable(access_addresses[i][j])) begin
+                                    fault_o[i] = pma_fault(mem_req_i[i].op_original);
+                                end
+                            end
+                        end
+                        MWRITE : begin
+                            for (int j = int'(access_width[i] - 1); j >= 0; j--) begin
+                                if (!pma_writable(access_addresses[i][j])) begin
+                                    fault_o[i] = pma_fault(mem_req_i[i].op_original);
+                                end
+                            end
+                        end
+                        default : $fatal(1);
+                    endcase
 
-        for (int i = 63; i >= 0; i--) begin
-            case (pmp_addr_matching_t'(pmp_cfg_i[i][PMPCFG_A_MSB : PMPCFG_A_LSB]))
-                PMP_OFF : begin
-                    // 0..0 doesn't match
-                    bottom_of_range = 0;
-                    top_of_range = 0;
-                end
-                PMP_TOR : begin
-                    // The range is (pmp_addr_i[i-1] << 2)..(pmp_addr_i[i] << 2)
-                    // if i==0, the bottom of the range is 0
-                    if (i != 0)
-                        bottom_of_range = {1'b0, pmp_addr_i[i-1][PMP_ADDR_WIDTH-1:0], 2'b00};
-                    else
-                        bottom_of_range = '0;
-                    top_of_range = {1'b0, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0], 2'b00};
-                    
-                end
-                PMP_NA4 : begin
-                    // range is (pmp_addr_i[i] << 2)..((pmp_addr_i[i] << 2) + 4)
-                    bottom_of_range = {1'b0, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0], 2'b00};
-                    top_of_range = {1'b0, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0], 2'b00} + (PHYS_ADDR_WIDTH + 1)'(3'd4);
-                end
-                PMP_NAPOT : begin
-                    n_trailing_1s = 0;
-                    // range is:
-                    // base_addr = (pmp_addr_i[i] >> (n_trailing_1s + 1)) << (n_trailing_1s + 3)
-                    // This clears n_trailing_1s bits, then, on net, shifts the address by 2
-                    // size = 1 << (3 + n_trailing_1s)
-                    // so the range is base_addr..base_addr+size (uninclusive)
-                    for (int j = 0; j < PMP_ADDR_WIDTH - 1; j++) begin
-                        // The moment this if statement isn't taken, n_trailing_1s == j will never
-                        // be true again, and thus it will never be incremented again.
-                        if (pmp_addr_i[i][j] == 1'b1) begin
-                            if (n_trailing_1s == j[5:0]) begin
-                                n_trailing_1s += 1;
+                    case (pma_alignment(access_addresses[i][0]))
+                        UNALIGNED : ;
+                        // To check an access is double aligned, we have the condition that a memory read is
+                        // double aligned IFF the first byte's addr[2:0] == 0. The access must also be MEM_DOUBLE
+                        DOUBLE_ALIGNED : begin
+                            if (access_addresses[i][0][2:0] != 3'b0 || access_width[i] != 8) begin
+                                fault_o[i] = pma_fault(mem_req_i[i].op_original);
+                            end
+                        end
+                        default : ;
+                    endcase
+
+                    // =========
+                    // PMP logic
+                    // =========
+                    for (int j = 63; j >= 0; j--) begin
+                        case (pmp_addr_matching_t'(pmp_cfg_i[j][PMPCFG_A_MSB : PMPCFG_A_LSB]))
+                            PMP_OFF : begin
+                                // 0..0 doesn't match
+                                bottom_of_range[i] = 0;
+                                top_of_range[i] = 0;
+                            end
+                            PMP_TOR : begin
+                                // The range is (pmp_addr_i[j-1] << 2)..(pmp_addr_i[j] << 2)
+                                // if j==0, the bottom of the range is 0
+                                if (j != 0)
+                                    bottom_of_range[i] = {1'b0, pmp_addr_i[j-1][PMP_ADDR_WIDTH-1:0], 2'b00};
+                                else
+                                    bottom_of_range[i] = '0;
+                                top_of_range[i] = {1'b0, pmp_addr_i[j][PMP_ADDR_WIDTH-1:0], 2'b00};
+                                
+                            end
+                            PMP_NA4 : begin
+                                // range is (pmp_addr_i[j] << 2)..((pmp_addr_i[j] << 2) + 4)
+                                bottom_of_range[i] = {1'b0, pmp_addr_i[j][PMP_ADDR_WIDTH-1:0], 2'b00};
+                                top_of_range[i] = {1'b0, pmp_addr_i[j][PMP_ADDR_WIDTH-1:0], 2'b00} + (PHYS_ADDR_WIDTH + 1)'(3'd4);
+                            end
+                            PMP_NAPOT : begin
+                                n_trailing_1s[i] = 0;
+                                // range is:
+                                // base_addr = (pmp_addr_i[j] >> (n_trailing_1s + 1)) << (n_trailing_1s + 3)
+                                // This clears n_trailing_1s bits, then, on net, shifts the address by 2
+                                // size = 1 << (3 + n_trailing_1s)
+                                // so the range is base_addr..base_addr+size (uninclusive)
+                                for (int k = 0; k < PMP_ADDR_WIDTH - 1; k++) begin
+                                    // The moment this if statement isn't taken, n_trailing_1s == k will never
+                                    // be true again, and thus it will never be incremented again.
+                                    if (pmp_addr_i[j][k] == 1'b1) begin
+                                        if (n_trailing_1s[i] == k[5:0]) begin
+                                            n_trailing_1s[i] += 1;
+                                        end
+                                    end
+                                end
+                                // Widen before shifting: a NAPOT region can end at the
+                                // exclusive end of the physical address space.
+                                bottom_of_range[i] = ({3'b000, pmp_addr_i[j][PMP_ADDR_WIDTH-1:0]} >> (n_trailing_1s[i] + 1))
+                                                << (n_trailing_1s[i] + 3);
+                                top_of_range[i] = bottom_of_range[i]
+                                            + ((PHYS_ADDR_WIDTH + 1)'(1'b1) << (3 + n_trailing_1s[i]));
+                            end
+                            // Here, I skip the $fatal(1) because I specifically know that there will never be
+                            // any more PMA modes.
+                            // This is necessary because, for a very brief moment at the time when reset is
+                            // asserted, this config value == 2'bxx (since the non blocking cfg <= 0 in the CSR
+                            // hasn't yet completed). So, this default branch is accessed briefly.
+                            default: ;
+                        endcase
+                        for (int k = 0; k < 8; k++) begin
+                            if (k < int'(access_width[i])) begin
+                                if (bottom_of_range[i] <= {1'b0, access_addresses[i][k][PHYS_ADDR_WIDTH-1:0]} && {1'b0, access_addresses[i][k][PHYS_ADDR_WIDTH-1:0]} < top_of_range[i]) begin
+                                    matching_pmp_idx[i] = j[5:0];
+                                    pmp_matched[i] = 1;
+                                    pmp_range_btm[i] = bottom_of_range[i];
+                                    pmp_range_top[i] = top_of_range[i];
+                                end
                             end
                         end
                     end
-                    // Widen before shifting: a NAPOT region can end at the
-                    // exclusive end of the physical address space.
-                    bottom_of_range = ({3'b000, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0]} >> (n_trailing_1s + 1))
-                                      << (n_trailing_1s + 3);
-                    top_of_range = bottom_of_range
-                                 + ((PHYS_ADDR_WIDTH + 1)'(1'b1) << (3 + n_trailing_1s));
-                end
-                // Here, I skip the $fatal(1) because I specifically know that there will never be
-                // any more PMA modes.
-                // This is necessary because, for a very brief moment at the time when reset is
-                // asserted, this config value == 2'bxx (since the non blocking cfg <= 0 in the CSR
-                // hasn't yet completed). So, this default branch is accessed briefly.
-                default: ;
-            endcase
-            for (int j = 0; j < 8; j++) begin
-                if (j < int'(access_width)) begin
-                    if (bottom_of_range <= {1'b0, access_addresses[j][PHYS_ADDR_WIDTH-1:0]} && {1'b0, access_addresses[j][PHYS_ADDR_WIDTH-1:0]} < top_of_range) begin
-                        access_matching_pmp_idx = i[5:0];
-                        access_pmp_matched = 1;
-                        access_pmp_range_btm = bottom_of_range;
-                        access_pmp_range_top = top_of_range;
+
+                    // If we are currently in M mode, we only apply a PMP's permissions if L == 1. However,
+                    // there is still a fault if the PMP partially covers the memory area.
+                    // We also bypass the permissions if there was no match, because M-mode permits unmatched accesses.
+                    bypass_permissions[i] = mem_req_i[i].effective_privilege == M_MODE && (!pmp_matched[i] || !pmp_cfg_i[matching_pmp_idx[i]][PMPCFG_L_IDX]);
+
+                    // There are three conditions for a PMP fault:
+                    //  1. There is at least one implemented PMP, but not one covering the entirety of this
+                    //     access.
+                    //  2. Not all bytes are in the selected PMP region (because the prioritization selects the
+                    //     lowest PMP which matches *any* of the bytes of the access)
+                    //  3. The R/W bit corresponding with this access's operation is not set.
+                    pmp_all_bytes[i] = 1;
+                    for (int j = 0; j < int'(access_width[i]); j++) begin
+                        // this works even if no pmp matched because the default (0..0) has no address matches
+                        // even in any edge case
+                        if (!(pmp_range_btm[i] <= {1'b0, access_addresses[i][j][PHYS_ADDR_WIDTH-1:0]} && {1'b0, access_addresses[i][j][PHYS_ADDR_WIDTH-1:0]} < pmp_range_top[i])) begin
+                            pmp_all_bytes[i] = 0;
+                        end
+                    end
+
+                    if ((!bypass_permissions[i] && PMP_ENTRY_COUNT != 0 && !pmp_matched[i]) ||
+                        (pmp_matched[i] && !pmp_all_bytes[i])
+                    ) begin
+                        fault_o[i] = pmp_fault(mem_req_i[i].op_original);
+                    end 
+
+                    if (!bypass_permissions[i] && pmp_matched[i]) begin
+                        case (mem_req_i[i].op)
+                            MFETCH : begin
+                                if (!pmp_cfg_i[matching_pmp_idx[i]][PMPCFG_X_IDX]) begin
+                                    fault_o[i] = pmp_fault(mem_req_i[i].op_original);
+                                end
+                            end
+                            MWRITE : begin
+                                if (!pmp_cfg_i[matching_pmp_idx[i]][PMPCFG_W_IDX]) begin
+                                    fault_o[i] = pmp_fault(mem_req_i[i].op_original);
+                                end
+                            end
+                            MREAD : begin
+                                if (!pmp_cfg_i[matching_pmp_idx[i]][PMPCFG_R_IDX]) begin
+                                    fault_o[i] = pmp_fault(mem_req_i[i].op_original);
+                                end
+                            end
+                        endcase 
                     end
                 end
-                // PC is only a 4 byte access
-                if (j < 4) begin
-                    if (bottom_of_range <= ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(j))) && ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(j))) < top_of_range) begin
-                        pc_matching_pmp_idx = i[5:0];
-                        pc_pmp_matched = 1;
-                        pc_pmp_range_btm = bottom_of_range;
-                        pc_pmp_range_top = top_of_range;
-                    end
-                end
             end
         end
+        // always_comb begin
+        //     pma_faulting_addr_o = '0;
+        //     hardware_fault_o = '0;
+
+        //     case (ctrl_i.mem_size)
+        //         MEM_BYTE : begin
+        //             access_width = 4'd1;
+        //             access_addresses[0] = data_mem_addr_i;
+        //             access_addresses[1] = data_mem_addr_i;
+        //             access_addresses[2] = data_mem_addr_i;
+        //             access_addresses[3] = data_mem_addr_i;
+        //             access_addresses[4] = data_mem_addr_i;
+        //             access_addresses[5] = data_mem_addr_i;
+        //             access_addresses[6] = data_mem_addr_i;
+        //             access_addresses[7] = data_mem_addr_i;
+        //             if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
+        //                 hardware_fault_o = '1;
+        //             end
+        //         end
+        //         MEM_HALF : begin
+        //             access_width = 4'd2;
+        //             access_addresses[0] = data_mem_addr_i;
+        //             access_addresses[1] = data_mem_addr_i + uintxlen_t'(1);
+        //             access_addresses[2] = data_mem_addr_i;
+        //             access_addresses[3] = data_mem_addr_i;
+        //             access_addresses[4] = data_mem_addr_i;
+        //             access_addresses[5] = data_mem_addr_i;
+        //             access_addresses[6] = data_mem_addr_i;
+        //             access_addresses[7] = data_mem_addr_i;
+        //             if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
+        //                 hardware_fault_o = '1;
+        //             end
+        //         end
+        //         MEM_WORD : begin
+        //             access_width = 4'd4;
+        //             access_addresses[0] = data_mem_addr_i;
+        //             access_addresses[1] = data_mem_addr_i + uintxlen_t'(1);
+        //             access_addresses[2] = data_mem_addr_i + uintxlen_t'(2);
+        //             access_addresses[3] = data_mem_addr_i + uintxlen_t'(3);
+        //             access_addresses[4] = data_mem_addr_i;
+        //             access_addresses[5] = data_mem_addr_i;
+        //             access_addresses[6] = data_mem_addr_i;
+        //             access_addresses[7] = data_mem_addr_i;
+        //             if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
+        //                 hardware_fault_o = '1;
+        //             end
+        //         end
+        //         MEM_DOUBLE : begin
+        //             access_width = 4'd8;
+        //             access_addresses[0] = data_mem_addr_i;
+        //             access_addresses[1] = data_mem_addr_i + uintxlen_t'(1);
+        //             access_addresses[2] = data_mem_addr_i + uintxlen_t'(2);
+        //             access_addresses[3] = data_mem_addr_i + uintxlen_t'(3);
+        //             access_addresses[4] = data_mem_addr_i + uintxlen_t'(4);
+        //             access_addresses[5] = data_mem_addr_i + uintxlen_t'(5);
+        //             access_addresses[6] = data_mem_addr_i + uintxlen_t'(6);
+        //             access_addresses[7] = data_mem_addr_i + uintxlen_t'(7);
+        //             if (!(ctrl_i.mem_read || ctrl_i.mem_write)) begin
+        //                 hardware_fault_o = '1;
+        //             end
+        //         end
+        //         MEM_NONE : begin
+        //             access_width = 4'd0;
+        //             access_addresses[0] = data_mem_addr_i;
+        //             access_addresses[1] = data_mem_addr_i;
+        //             access_addresses[2] = data_mem_addr_i;
+        //             access_addresses[3] = data_mem_addr_i;
+        //             access_addresses[4] = data_mem_addr_i;
+        //             access_addresses[5] = data_mem_addr_i;
+        //             access_addresses[6] = data_mem_addr_i;
+        //             access_addresses[7] = data_mem_addr_i;
+        //             // MEM_NONE should only be true if there isn't a memory read or memory
+        //             // write
+        //             if (ctrl_i.mem_read || ctrl_i.mem_write) begin
+        //                 hardware_fault_o = '1;
+        //             end
+        //         end
+        //         default: $fatal(1);
+        //     endcase
+
+        //     // =================================
+        //     // Physical memory attribution logic
+        //     // =================================
+        //     // Note, importantly, the order of checks: read -> write -> instruction fetch
+        //     // This is used because of the ordering of checks in trap_controller, where an instruction
+        //     // fetch fault is raised over a write fault is raised over a read fault. The PMA checker
+        //     // must check in that order so the correct address is put in pma_faulting_addr.
+            
+            
+
+        //     pma_write_exception_o = '0;
+        //     pma_read_exception_o = '0;
+        //     if (ctrl_i.mem_read) begin
+        //         // We iterate in reverse so the lowest failing byte is put in pma_faulting_addr
+        //         for (int i = int'(access_width) - 1; i >= 0; i--) begin
+        //             if (!pma_readable(access_addresses[i])) begin
+        //                 pma_read_exception_o = '1;
+        //                 pma_faulting_addr_o = access_addresses[i];
+        //             end
+        //         end
+        //     end
+        //     if (ctrl_i.mem_write) begin
+        //         for (int i = int'(access_width) - 1; i >= 0; i--) begin
+        //             if (!pma_writable(access_addresses[i])) begin
+        //                 pma_write_exception_o = '1;
+        //                 pma_faulting_addr_o = access_addresses[i];
+        //             end
+        //         end
+        //     end
+
+        //     case (pma_alignment(access_addresses[0]))
+        //         UNALIGNED : ;
+        //         // To check an access is double aligned, we have the condition that a memory read is
+        //         // double aligned IFF the first byte's addr[2:0] == 0. The access must also be MEM_DOUBLE
+        //         DOUBLE_ALIGNED : begin
+        //             if (access_addresses[0][2:0] != 3'b0 || access_width != 8) begin
+        //                 if (ctrl_i.mem_read) begin
+        //                     pma_read_exception_o = '1;
+        //                     pma_faulting_addr_o = access_addresses[0];
+        //                 end
+        //                 if (ctrl_i.mem_write) begin
+        //                     pma_write_exception_o = '1;
+        //                     pma_faulting_addr_o = access_addresses[0];
+        //                 end
+        //             end
+        //         end
+        //         default : ;
+        //     endcase
+
+        //     pma_instruction_fetch_exception_o = '0;
+        //     for (int i = 3; i >= 0; i--) begin
+        //         pma_instruction_fetch_exception_o = pma_instruction_fetch_exception_o || (!pma_readable(pc_i + uintxlen_t'(i)) || !pma_main(pc_i + uintxlen_t'(i)));
+                
+        //         if (!pma_readable(pc_i + uintxlen_t'(i)) || !pma_main(pc_i + uintxlen_t'(i))) begin
+        //             pma_faulting_addr_o = pc_i + uintxlen_t'(i);
+        //         end
+        //     end
+
+        //     // ================================
+        //     // Physical memory protection logic
+        //     // ================================
+        //     pmp_read_exception_o = '0;
+        //     pmp_write_exception_o = '0;
+        //     pmp_instruction_fetch_exception_o = '0;
+        //     pmp_faulting_addr_o = '0;
+        //     all_access_bytes = 1;
+        //     all_pc_bytes = 1;
+        //     // First, we want to find the lowest PMP which matches *any* of the bytes of the memory
+        //     // access. This is the priority rule outlined in Privileged Architecture 2.1.7.1.3. Priority
+        //     // and Matching Logic
+        //     access_matching_pmp_idx = 63;
+        //     pc_matching_pmp_idx = 63;
+        //     access_pmp_matched = 0;
+        //     pc_pmp_matched = 0;
+        //     bottom_of_range = 0;
+        //     top_of_range = 0;
+        //     n_trailing_1s = 0;
+        //     access_pmp_range_btm = 0;
+        //     access_pmp_range_top = 0;
+        //     pc_pmp_range_btm = 0;
+        //     pc_pmp_range_top = 0;
+
+        //     for (int i = 63; i >= 0; i--) begin
+        //         case (pmp_addr_matching_t'(pmp_cfg_i[i][PMPCFG_A_MSB : PMPCFG_A_LSB]))
+        //             PMP_OFF : begin
+        //                 // 0..0 doesn't match
+        //                 bottom_of_range = 0;
+        //                 top_of_range = 0;
+        //             end
+        //             PMP_TOR : begin
+        //                 // The range is (pmp_addr_i[i-1] << 2)..(pmp_addr_i[i] << 2)
+        //                 // if i==0, the bottom of the range is 0
+        //                 if (i != 0)
+        //                     bottom_of_range = {1'b0, pmp_addr_i[i-1][PMP_ADDR_WIDTH-1:0], 2'b00};
+        //                 else
+        //                     bottom_of_range = '0;
+        //                 top_of_range = {1'b0, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0], 2'b00};
+                        
+        //             end
+        //             PMP_NA4 : begin
+        //                 // range is (pmp_addr_i[i] << 2)..((pmp_addr_i[i] << 2) + 4)
+        //                 bottom_of_range = {1'b0, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0], 2'b00};
+        //                 top_of_range = {1'b0, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0], 2'b00} + (PHYS_ADDR_WIDTH + 1)'(3'd4);
+        //             end
+        //             PMP_NAPOT : begin
+        //                 n_trailing_1s = 0;
+        //                 // range is:
+        //                 // base_addr = (pmp_addr_i[i] >> (n_trailing_1s + 1)) << (n_trailing_1s + 3)
+        //                 // This clears n_trailing_1s bits, then, on net, shifts the address by 2
+        //                 // size = 1 << (3 + n_trailing_1s)
+        //                 // so the range is base_addr..base_addr+size (uninclusive)
+        //                 for (int j = 0; j < PMP_ADDR_WIDTH - 1; j++) begin
+        //                     // The moment this if statement isn't taken, n_trailing_1s == j will never
+        //                     // be true again, and thus it will never be incremented again.
+        //                     if (pmp_addr_i[i][j] == 1'b1) begin
+        //                         if (n_trailing_1s == j[5:0]) begin
+        //                             n_trailing_1s += 1;
+        //                         end
+        //                     end
+        //                 end
+        //                 // Widen before shifting: a NAPOT region can end at the
+        //                 // exclusive end of the physical address space.
+        //                 bottom_of_range = ({3'b000, pmp_addr_i[i][PMP_ADDR_WIDTH-1:0]} >> (n_trailing_1s + 1))
+        //                                 << (n_trailing_1s + 3);
+        //                 top_of_range = bottom_of_range
+        //                             + ((PHYS_ADDR_WIDTH + 1)'(1'b1) << (3 + n_trailing_1s));
+        //             end
+        //             // Here, I skip the $fatal(1) because I specifically know that there will never be
+        //             // any more PMA modes.
+        //             // This is necessary because, for a very brief moment at the time when reset is
+        //             // asserted, this config value == 2'bxx (since the non blocking cfg <= 0 in the CSR
+        //             // hasn't yet completed). So, this default branch is accessed briefly.
+        //             default: ;
+        //         endcase
+        //         for (int j = 0; j < 8; j++) begin
+        //             if (j < int'(access_width)) begin
+        //                 if (bottom_of_range <= {1'b0, access_addresses[j][PHYS_ADDR_WIDTH-1:0]} && {1'b0, access_addresses[j][PHYS_ADDR_WIDTH-1:0]} < top_of_range) begin
+        //                     access_matching_pmp_idx = i[5:0];
+        //                     access_pmp_matched = 1;
+        //                     access_pmp_range_btm = bottom_of_range;
+        //                     access_pmp_range_top = top_of_range;
+        //                 end
+        //             end
+        //             // PC is only a 4 byte access
+        //             if (j < 4) begin
+        //                 if (bottom_of_range <= ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(j))) && ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(j))) < top_of_range) begin
+        //                     pc_matching_pmp_idx = i[5:0];
+        //                     pc_pmp_matched = 1;
+        //                     pc_pmp_range_btm = bottom_of_range;
+        //                     pc_pmp_range_top = top_of_range;
+        //                 end
+        //             end
+        //         end
+        //     end
 
 
-        // Now, we check to see if the memory accesses fail their PMPs. We do the memory access
-        // before the PC instruction fetch because of the same reason as above (in the PMA).
+        //     // Now, we check to see if the memory accesses fail their PMPs. We do the memory access
+        //     // before the PC instruction fetch because of the same reason as above (in the PMA).
 
 
-        // If we are currently in M mode, we only apply a PMP's permissions if L == 1. However,
-        // there is still a fault if the PMP partially covers the memory area.
-        // We also bypass the permissions if there was no match, because M-mode permits unmatched accesses.
-        bypass_permissions = effective_privilege == M_MODE && (!access_pmp_matched || !pmp_cfg_i[access_matching_pmp_idx][PMPCFG_L_IDX]);
-        // There are three conditions for a PMP fault:
-        //  1. There is at least one implemented PMP, but not one covering the entirety of this
-        //     access.
-        //  2. Not all bytes are in the selected PMP region (because the prioritization selects the
-        //     lowest PMP which matches *any* of the bytes of the access)
-        //  3. The R/W bit corresponding with this access's operation is not set.
-        for (int i = 0; i < int'(access_width); i++) begin
-            // this works even if no pmp matched because the default (0..0) has no address matches
-            // even in any edge case
-            if (!(access_pmp_range_btm <= {1'b0, access_addresses[i][PHYS_ADDR_WIDTH-1:0]} && {1'b0, access_addresses[i][PHYS_ADDR_WIDTH-1:0]} < access_pmp_range_top)) begin
-                all_access_bytes = 0;
-            end
-        end
-        if ((!bypass_permissions && PMP_ENTRY_COUNT != 0 && !access_pmp_matched) ||
-            (!bypass_permissions && access_pmp_matched && ctrl_i.mem_read && !pmp_cfg_i[access_matching_pmp_idx][PMPCFG_R_IDX]) ||
-            (!bypass_permissions && access_pmp_matched && ctrl_i.mem_write && !pmp_cfg_i[access_matching_pmp_idx][PMPCFG_W_IDX]) ||
-            (access_pmp_matched && !all_access_bytes)) begin
-            if (ctrl_i.mem_read) begin
-                pmp_read_exception_o = '1;
-                pmp_faulting_addr_o = data_mem_addr_i;
-            end else if (ctrl_i.mem_write) begin
-                pmp_write_exception_o = '1;
-                pmp_faulting_addr_o = data_mem_addr_i;
-            end
-        end 
+        //     // If we are currently in M mode, we only apply a PMP's permissions if L == 1. However,
+        //     // there is still a fault if the PMP partially covers the memory area.
+        //     // We also bypass the permissions if there was no match, because M-mode permits unmatched accesses.
+        //     bypass_permissions = effective_privilege == M_MODE && (!access_pmp_matched || !pmp_cfg_i[access_matching_pmp_idx][PMPCFG_L_IDX]);
+        //     // There are three conditions for a PMP fault:
+        //     //  1. There is at least one implemented PMP, but not one covering the entirety of this
+        //     //     access.
+        //     //  2. Not all bytes are in the selected PMP region (because the prioritization selects the
+        //     //     lowest PMP which matches *any* of the bytes of the access)
+        //     //  3. The R/W bit corresponding with this access's operation is not set.
+        //     for (int i = 0; i < int'(access_width); i++) begin
+        //         // this works even if no pmp matched because the default (0..0) has no address matches
+        //         // even in any edge case
+        //         if (!(access_pmp_range_btm <= {1'b0, access_addresses[i][PHYS_ADDR_WIDTH-1:0]} && {1'b0, access_addresses[i][PHYS_ADDR_WIDTH-1:0]} < access_pmp_range_top)) begin
+        //             all_access_bytes = 0;
+        //         end
+        //     end
+        //     if ((!bypass_permissions && PMP_ENTRY_COUNT != 0 && !access_pmp_matched) ||
+        //         (!bypass_permissions && access_pmp_matched && ctrl_i.mem_read && !pmp_cfg_i[access_matching_pmp_idx][PMPCFG_R_IDX]) ||
+        //         (!bypass_permissions && access_pmp_matched && ctrl_i.mem_write && !pmp_cfg_i[access_matching_pmp_idx][PMPCFG_W_IDX]) ||
+        //         (access_pmp_matched && !all_access_bytes)) begin
+        //         if (ctrl_i.mem_read) begin
+        //             pmp_read_exception_o = '1;
+        //             pmp_faulting_addr_o = data_mem_addr_i;
+        //         end else if (ctrl_i.mem_write) begin
+        //             pmp_write_exception_o = '1;
+        //             pmp_faulting_addr_o = data_mem_addr_i;
+        //         end
+        //     end 
 
-        // Instruction fetches always use the current privilege rather than the effective (MPRV) privilege.
-        bypass_permissions = current_privilege_i == M_MODE && (!pc_pmp_matched || !pmp_cfg_i[pc_matching_pmp_idx][PMPCFG_L_IDX]);
-        for (int i = 0; i < 4; i++) begin
-            // this works even if no pmp matched because the default (0..0) has no address matches
-            // even in any edge case
-            if (!(pc_pmp_range_btm <= ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(i))) && ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(i))) < pc_pmp_range_top)) begin
-                all_pc_bytes = 0;
-            end
-        end
-        // Now, the same checks on the PC, but we need to check executability (read not required).
-        if ((!bypass_permissions && PMP_ENTRY_COUNT != 0 && !pc_pmp_matched) ||
-            (!bypass_permissions && pc_pmp_matched && !pmp_cfg_i[pc_matching_pmp_idx][PMPCFG_X_IDX]) ||
-            (pc_pmp_matched && !all_pc_bytes)) begin
-            pmp_instruction_fetch_exception_o = '1;
-            pmp_faulting_addr_o = pc_i;
-        end
-    end
+        //     // Instruction fetches always use the current privilege rather than the effective (MPRV) privilege.
+        //     bypass_permissions = current_privilege_i == M_MODE && (!pc_pmp_matched || !pmp_cfg_i[pc_matching_pmp_idx][PMPCFG_L_IDX]);
+        //     for (int i = 0; i < 4; i++) begin
+        //         // this works even if no pmp matched because the default (0..0) has no address matches
+        //         // even in any edge case
+        //         if (!(pc_pmp_range_btm <= ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(i))) && ({1'b0, pc_i[PHYS_ADDR_WIDTH-1:0]} + (PHYS_ADDR_WIDTH + 1)'(unsigned'(i))) < pc_pmp_range_top)) begin
+        //             all_pc_bytes = 0;
+        //         end
+        //     end
+        //     // Now, the same checks on the PC, but we need to check executability (read not required).
+        //     if ((!bypass_permissions && PMP_ENTRY_COUNT != 0 && !pc_pmp_matched) ||
+        //         (!bypass_permissions && pc_pmp_matched && !pmp_cfg_i[pc_matching_pmp_idx][PMPCFG_X_IDX]) ||
+        //         (pc_pmp_matched && !all_pc_bytes)) begin
+        //         pmp_instruction_fetch_exception_o = '1;
+        //         pmp_faulting_addr_o = pc_i;
+        //     end
+        // end
+    endgenerate
 endmodule : physical_memory_checker

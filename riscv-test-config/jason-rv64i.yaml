@@ -3,13 +3,34 @@ $schema: config_schema.json#
 kind: architecture configuration
 type: fully configured
 
-name: jason-rv64i
-description: RV64I with standard machine-mode support
+name: jason-rv64isu-sv39
+description: RV64I with M/S/U privilege modes, Sstc timer compare, Sv39 translation, and Svade A/D faults
 
 params:
   MXLEN: 64
-  PHYS_ADDR_WIDTH: 32
+  PHYS_ADDR_WIDTH: 56
   M_MODE_ENDIANNESS: little
+
+  # User mode is implemented at the same XLEN and with the same fixed
+  # little-endian byte order as M-mode.
+  MUTABLE_MISA_U: false
+  U_MODE_ENDIANNESS: little
+  UXLEN: [64]
+  TRAP_ON_ECALL_FROM_U: true
+
+  # Supervisor mode is implemented with Sv39 only (in addition to Bare).
+  # satp implements all sixteen RV64 ASID bits and SFENCE.VMA uses them.
+  MUTABLE_MISA_S: false
+  ASID_WIDTH: 16
+  S_MODE_ENDIANNESS: little
+  SXLEN: [64]
+  SATP_MODE_BARE: true
+  TRAP_ON_ECALL_FROM_S: true
+
+  # Floating-point and vector state are not implemented, so the associated
+  # mstatus fields are fixed at Off.
+  MSTATUS_FS_LEGAL_VALUES: [0]
+  MSTATUS_VS_LEGAL_VALUES: [0]
 
   # ------------------------------------------------------------
   # Exceptions/traps
@@ -38,9 +59,26 @@ params:
   REPORT_VA_IN_MTVAL_ON_LOAD_ACCESS_FAULT: true
   REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT: true
   REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT: true
+  REPORT_VA_IN_MTVAL_ON_LOAD_PAGE_FAULT: true
+  REPORT_VA_IN_MTVAL_ON_STORE_AMO_PAGE_FAULT: true
+  REPORT_VA_IN_MTVAL_ON_INSTRUCTION_PAGE_FAULT: true
   REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION: false
 
   MTVAL_WIDTH: 64
+
+  # stval follows the same implemented trap-value behavior as mtval.
+  REPORT_VA_IN_STVAL_ON_BREAKPOINT: false
+  REPORT_VA_IN_STVAL_ON_LOAD_MISALIGNED: false
+  REPORT_VA_IN_STVAL_ON_STORE_AMO_MISALIGNED: false
+  REPORT_VA_IN_STVAL_ON_INSTRUCTION_MISALIGNED: false
+  REPORT_VA_IN_STVAL_ON_LOAD_ACCESS_FAULT: true
+  REPORT_VA_IN_STVAL_ON_STORE_AMO_ACCESS_FAULT: true
+  REPORT_VA_IN_STVAL_ON_INSTRUCTION_ACCESS_FAULT: true
+  REPORT_VA_IN_STVAL_ON_LOAD_PAGE_FAULT: true
+  REPORT_VA_IN_STVAL_ON_STORE_AMO_PAGE_FAULT: true
+  REPORT_VA_IN_STVAL_ON_INSTRUCTION_PAGE_FAULT: true
+  REPORT_ENCODING_IN_STVAL_ON_ILLEGAL_INSTRUCTION: false
+  STVAL_WIDTH: 64
 
   # ------------------------------------------------------------
   # Misaligned loads/stores
@@ -86,6 +124,11 @@ params:
   MTVEC_BASE_ALIGNMENT_VECTORED: 4
   MTVEC_ILLEGAL_WRITE_BEHAVIOR: retain
 
+  # stvec accepts direct and vectored encodings; vectored bases need only
+  # the architectural 4-byte alignment in this implementation.
+  STVEC_MODES: [0, 1]
+  STVEC_BASE_ALIGNMENT_VECTORED: 4
+
   # ------------------------------------------------------------
   # PMA / PMP
   # ------------------------------------------------------------
@@ -102,7 +145,7 @@ params:
   # Performance counters
   # ------------------------------------------------------------
 
-  TIME_CSR_IMPLEMENTED: false
+  TIME_CSR_IMPLEMENTED: true
 
   HPM_COUNTER_EN:
     [
@@ -132,7 +175,22 @@ params:
 
   MCOUNTENABLE_EN:
     [
+      true, true, true, false,
       false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false, false
+    ]
+
+  # mcounteren/scounteren can delegate the three Zicntr counters.  HPM
+  # counters are implemented as read-only zero, so they have no enable bits
+  # to delegate.
+  SCOUNTENABLE_EN:
+    [
+      true, true, true, false,
       false, false, false, false,
       false, false, false, false,
       false, false, false, false,
@@ -151,6 +209,16 @@ implemented_extensions:
     version: "= 2.0"
   - name: Zicsr
     version: "= 2.0"
+  - name: U
+    version: "= 1.0.0"
+  - name: S
+    version: "= 1.12.0"
+  - name: Sv39
+    version: "= 1.0.0"
+  - name: Svade
+    version: "= 1.0.0"
+  - name: Svbare
+    version: "= 1.0.0"
   - name: Sm
     version: "= 1.12.0"
 

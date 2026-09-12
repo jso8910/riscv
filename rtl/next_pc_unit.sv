@@ -23,6 +23,7 @@ module next_pc_unit (
     assign op1_signed = signed'(op1), op2_signed = signed'(op2);
     assign pc_seq = pc_i + PC_INC;
 
+
     always_comb begin
         // In the case of a return from a trap, we want to branch to the MEPC
         case (ctrl_i.branch_src)

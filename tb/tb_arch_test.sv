@@ -6,6 +6,7 @@ module tb_arch_test;
     localparam logic [XLEN-1:0] TOHOST_ADDR = 32'h001f_fff0;
     localparam logic [31:0] HTIF_CONSOLE_WRITE = 32'h0101_0000;
     localparam int DEFAULT_MAX_CYCLES = 2_000_000;
+    localparam int TRACE_DEPTH = 32;
 
     logic clk;
     logic rst_n;
@@ -14,25 +15,43 @@ module tb_arch_test;
     int cycle;
     logic [63:0] tohost;
     bit finished;
+    bit debug;
+    bit trace_memory;
+    logic [63:0] previous_tohost;
 
-    logic [IALIGN-1:0] inst;
+    // Keep the last few instructions so failures and timeouts have context even
+    // when the test was run without the verbose trace enabled.
+    logic [XLEN-1:0] history_pc [TRACE_DEPTH];
+    logic [31:0] history_instruction [TRACE_DEPTH];
+    int history_cycle [TRACE_DEPTH];
+    bit history_valid [TRACE_DEPTH];
+    bit history_commit [TRACE_DEPTH];
+    bit history_trap [TRACE_DEPTH];
+    int history_head;
+    int history_count;
+
+    logic [WWIDTH-1:0] inst_mem_data;
     logic [WWIDTH-1:0] data_mem_rdata;
     logic [WWIDTH-1:0] data_mem_wdata;
     logic [XLEN-1:0] data_mem_addr;
-    logic [XLEN-1:0] pc;
+    logic [XLEN-1:0] inst_mem_addr;
     logic [WWIDTH/8-1:0] data_mem_we;
+    logic mtime_we;
+    logic [XLEN-1:0] time_q;
 
     bit [7:0] memory [];
 
     riscv_core dut (
         .clk             (clk),
         .rst_n           (rst_n),
-        .inst_i          (inst),
+        .inst_mem_data_i (inst_mem_data),
         .data_mem_data_i (data_mem_rdata),
-        .pc_o            (pc),
+        .time_i          (time_q),
+        .inst_mem_addr_o (inst_mem_addr),
         .data_mem_we_o   (data_mem_we),
         .data_mem_addr_o (data_mem_addr),
-        .data_mem_data_o (data_mem_wdata)
+        .data_mem_data_o (data_mem_wdata),
+        .mtime_we_o      (mtime_we)
     );
 
     always #5 clk = ~clk;
@@ -52,6 +71,16 @@ module tb_arch_test;
             value = '0;
             for (int i = 0; i < 8; i++) begin
                 value[i * 8 +: 8] = read_memory(TOHOST_ADDR + i);
+            end
+            return value;
+        end
+    endfunction
+
+    function automatic logic [63:0] read_memory64(input logic [XLEN-1:0] addr);
+        logic [63:0] value;
+        begin
+            for (int i = 0; i < 8; i++) begin
+                value[i * 8 +: 8] = read_memory(addr + i);
             end
             return value;
         end
@@ -83,14 +112,40 @@ module tb_arch_test;
                 end
             end
             $fclose(fd);
-            $display("Loaded %0d bytes", count);
+            $display("ARCH-TRACE: loaded %0d memory records from %s (range 0x%h-0x%h)",
+                     count, path, MEM_START_ADDRESS, MEM_END_ADDRESS);
+        end
+    endtask
+
+    task automatic dump_history(input string reason);
+        int index;
+        int oldest;
+        begin
+            $display("ARCH-TRACE: recent execution history (%s, %0d entries)",
+                     reason, history_count);
+            oldest = (history_head - history_count + TRACE_DEPTH) % TRACE_DEPTH;
+            for (int i = 0; i < history_count; i++) begin
+                index = (oldest + i) % TRACE_DEPTH;
+                $display("ARCH-TRACE: cycle=%0d pc=0x%016h inst=0x%08h valid=%0b commit=%0b trap=%0b",
+                         history_cycle[index], history_pc[index], history_instruction[index],
+                         history_valid[index], history_commit[index], history_trap[index]);
+            end
+            $display("ARCH-TRACE: final pc=0x%016h fetch_pc=0x%016h inst=0x%08h valid=%0b commit=%0b trap=%0b privilege=%0d",
+                     dut.inst_pc, dut.fetch_pc, dut.inst_q, dut.inst_valid, dut.commit,
+                     dut.trap.is_trap, dut.machine_privilege);
+            $display("ARCH-TRACE: final next_pc=0x%016h inst_addr=0x%016h data_addr=0x%016h data_we=0x%0h",
+                     dut.next_pc, inst_mem_addr, data_mem_addr, data_mem_we);
+            $display("ARCH-TRACE: final trap interrupt=%0b exception_cause=%0d tval=0x%016h mepc=0x%016h mtvec=0x%016h",
+                     dut.trap.is_interrupt, dut.trap.exception_cause, dut.trap.tval,
+                     dut.mepc, dut.mtvec);
+            $display("ARCH-TRACE: final tohost=0x%016h time=0x%016h", tohost, time_q);
         end
     endtask
 
     always_comb begin
-        inst = '0;
+        inst_mem_data = '0;
         for (int i = 0; i < IALIGN/8; i++) begin
-            inst[i * 8 +: 8] = read_memory(pc + i);
+            inst_mem_data[i * 8 +: 8] = read_memory(inst_mem_addr + i);
         end
     end
 
@@ -101,12 +156,62 @@ module tb_arch_test;
         end
     end
 
+    // Trap and page-fault signals are combinational.  Log them when they assert
+    // rather than only at posedge, where the fetch/redirect logic may already
+    // have removed the transient assertion.
+    always @(dut.trap.is_trap or dut.fetch_page_fault or dut.load_page_fault or dut.store_page_fault) begin
+        if (debug && (dut.trap.is_trap || dut.fetch_page_fault || dut.load_page_fault || dut.store_page_fault)) begin
+            $display("ARCH-TRACE: fault event cycle=%0d pc=0x%016h fetch_pf=%0b load_pf=%0b store_pf=%0b trap=%0b cause=%0d tval=0x%016h satp=0x%016h privilege=%0d mepc=0x%016h sepc=0x%016h",
+                     cycle, dut.inst_pc, dut.fetch_page_fault, dut.load_page_fault, dut.store_page_fault,
+                     dut.trap.is_trap, dut.trap.exception_cause, dut.trap.tval, dut.satp,
+                     dut.machine_privilege, dut.mepc, dut.sepc);
+        end
+    end
+
     always @(posedge clk) begin
-        if (rst_n) begin
+        if (!rst_n) begin
+            time_q <= '0;
+        end else begin
+            if (mtime_we)
+                time_q <= data_mem_wdata;
+            else
+                time_q <= time_q + XLEN'(1);
+
             for (int i = 0; i < WWIDTH/8; i++) begin
                 if (data_mem_we[i] && data_mem_addr + i <= MEM_END_ADDRESS) begin
                     memory[data_mem_addr + i - MEM_START_ADDRESS] = data_mem_wdata[i * 8 +: 8];
                 end
+            end
+
+            history_pc[history_head] = dut.inst_pc;
+            history_instruction[history_head] = dut.inst_q;
+            history_cycle[history_head] = cycle;
+            history_valid[history_head] = dut.inst_valid;
+            history_commit[history_head] = dut.commit;
+            history_trap[history_head] = dut.trap.is_trap;
+            history_head = (history_head + 1) % TRACE_DEPTH;
+            if (history_count < TRACE_DEPTH)
+                history_count++;
+
+            if (debug && dut.inst_valid) begin
+                $display("ARCH-TRACE: cycle=%0d pc=0x%016h inst=0x%08h valid=%0b commit=%0b trap=%0b privilege=%0d next_pc=0x%016h",
+                         cycle, dut.inst_pc, dut.inst_q, dut.inst_valid, dut.commit,
+                         dut.trap.is_trap, dut.machine_privilege, dut.next_pc);
+            end
+            if (debug && dut.trap.is_trap) begin
+                $display("ARCH-TRACE: trap cycle=%0d interrupt=%0b exception_cause=%0d tval=0x%016h dest_privilege=%0d",
+                         cycle, dut.trap.is_interrupt, dut.trap.exception_cause, dut.trap.tval,
+                         dut.trap.dest_machine_privilege);
+            end
+            if (trace_memory && (data_mem_we != '0)) begin
+                $display("ARCH-TRACE: store cycle=%0d addr=0x%016h we=0x%0h data=0x%016h",
+                         cycle, data_mem_addr, data_mem_we, data_mem_wdata);
+            end
+            if (debug && dut.inst_valid && (dut.ctrl.csr_read || dut.ctrl.csr_write)) begin
+                $display("ARCH-TRACE: csr cycle=%0d addr=0x%03h read=%0b write=%0b rs1=0x%016h value=0x%016h mip=0x%016h mideleg=0x%016h menvcfg=0x%016h stip=%0b",
+                         cycle, dut.ctrl.csr_addr, dut.ctrl.csr_read, dut.ctrl.csr_write,
+                         dut.rs1_data, dut.csr_val, dut.mip, dut.mideleg, dut.u_csrfile.menvcfg,
+                         dut.stip);
             end
         end
     end
@@ -116,12 +221,20 @@ module tb_arch_test;
         rst_n = 1'b0;
         max_cycles = DEFAULT_MAX_CYCLES;
         finished = 1'b0;
+        debug = $test$plusargs("debug") || $test$plusargs("trace");
+        trace_memory = $test$plusargs("trace_memory") || debug;
+        previous_tohost = '0;
+        history_head = 0;
+        history_count = 0;
 
         if (!$value$plusargs("mem=%s", mem_file)) begin
             $fatal(1, "Missing +mem=<path>");
         end
         if ($value$plusargs("max_cycles=%d", max_cycles)) begin
         end
+
+        $display("ARCH-TRACE: starting architecture testbench (max_cycles=%0d debug=%0b trace_memory=%0b)",
+                 max_cycles, debug, trace_memory);
 
         memory = new[MEM_END_ADDRESS - MEM_START_ADDRESS + 1];
         load_memory(mem_file);
@@ -133,20 +246,33 @@ module tb_arch_test;
             @(posedge clk);
             #1;
             tohost = read_tohost();
+            if (tohost != previous_tohost) begin
+                if (tohost != 64'd0 || debug)
+                    $display("ARCH-TRACE: tohost changed cycle=%0d old=0x%016h new=0x%016h",
+                             cycle, previous_tohost, tohost);
+                previous_tohost = tohost;
+            end
             if (tohost == 64'd1) begin
-                $display("TOHOST PASS 0x%016h cycle %0d", tohost, cycle);
+                $display("ARCH-TRACE: TOHOST PASS 0x%016h cycle %0d", tohost, cycle);
                 finished = 1'b1;
                 $finish;
                 break;
             end else if (tohost == 64'd3) begin
-                $display("TOHOST FAIL 0x%016h cycle %0d", tohost, cycle);
+                $display("ARCH-TRACE: TOHOST FAIL 0x%016h cycle %0d", tohost, cycle);
+                if ($test$plusargs("failure_scratch")) begin
+                    $display("ARCH-TRACE: FAILURE-SCRATCH return=%h expected=%h actual=%h diag=%h",
+                             read_memory64(64'h17028), read_memory64(64'h17020),
+                             read_memory64(64'h17078), read_memory64(64'h17128));
+                end
+                dump_history("tohost failure");
                 finished = 1'b1;
                 $finish;
                 break;
             end else if (tohost[63:32] == HTIF_CONSOLE_WRITE) begin
             end else if (tohost[63:32] == 32'h0) begin
             end else if (tohost != 64'd0) begin
-                $display("TOHOST UNKNOWN 0x%016h cycle %0d", tohost, cycle);
+                $display("ARCH-TRACE: TOHOST UNKNOWN 0x%016h cycle %0d", tohost, cycle);
+                dump_history("unknown tohost");
                 finished = 1'b1;
                 $finish;
                 break;
@@ -154,7 +280,8 @@ module tb_arch_test;
         end
 
         if (!finished) begin
-            $display("TOHOST TIMEOUT cycle %0d", max_cycles);
+            $display("ARCH-TRACE: TOHOST TIMEOUT cycle %0d", max_cycles);
+            dump_history("timeout");
             $fatal(1, "DUT did not write tohost");
         end
     end

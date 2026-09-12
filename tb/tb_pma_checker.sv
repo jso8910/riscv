@@ -3,63 +3,45 @@
 import riscv::*;
 
 module tb_pma_checker;
-    logic [XLEN-1:0] pc;
-    ctrl_t ctrl;
-    logic [XLEN-1:0] data_addr;
-    logic [XLEN-1:0] mstatus;
-    machine_privilege_t current_privilege;
     logic [7:0] pmp_cfg [0:63];
     logic [XLEN-1:0] pmp_addr [0:63];
-    logic pma_fetch_fault;
-    logic pma_write_fault;
-    logic pma_read_fault;
-    logic hardware_fault;
-    logic [XLEN-1:0] pma_faulting_addr;
-    logic pmp_fetch_fault;
-    logic pmp_write_fault;
-    logic pmp_read_fault;
-    logic [XLEN-1:0] pmp_faulting_addr;
-    int tests_run;
-    int tests_failed;
+    mem_req_t [MEM_READ_PORTS-1:0] req;
+    mem_fault_t [MEM_READ_PORTS-1:0] fault;
+    logic [MEM_READ_PORTS-1:0][XLEN-1:0] fault_addr;
+    int tests_run, tests_failed;
 
     physical_memory_checker dut (
-        .current_privilege_i(current_privilege),
-        .pmp_cfg_i(pmp_cfg),
-        .pmp_addr_i(pmp_addr),
-        .pc_i(pc),
-        .ctrl_i(ctrl),
-        .data_mem_addr_i(data_addr),
-        .mstatus_i(mstatus),
-        .pma_instruction_fetch_exception_o(pma_fetch_fault),
-        .pma_write_exception_o(pma_write_fault),
-        .pma_read_exception_o(pma_read_fault),
-        .hardware_fault_o(hardware_fault),
-        .pma_faulting_addr_o(pma_faulting_addr),
-        .pmp_instruction_fetch_exception_o(pmp_fetch_fault),
-        .pmp_write_exception_o(pmp_write_fault),
-        .pmp_read_exception_o(pmp_read_fault),
-        .pmp_faulting_addr_o(pmp_faulting_addr)
+        .pmp_cfg_i(pmp_cfg), .pmp_addr_i(pmp_addr), .mem_req_i(req),
+        .fault_o(fault), .fault_addr_o(fault_addr)
     );
 
     function automatic logic [7:0] pmpcfg(
-        input logic lock,
-        input pmp_addr_matching_t address_mode,
-        input logic executable,
-        input logic writable,
-        input logic readable
+        input pmp_addr_matching_t mode, input logic r, input logic w, input logic x
     );
+        logic [7:0] value;
         begin
-            pmpcfg = '0;
-            pmpcfg[PMPCFG_L_IDX] = lock;
-            pmpcfg[PMPCFG_A_MSB : PMPCFG_A_LSB] = address_mode;
-            pmpcfg[PMPCFG_X_IDX] = executable;
-            pmpcfg[PMPCFG_W_IDX] = writable;
-            pmpcfg[PMPCFG_R_IDX] = readable;
+            value = '0;
+            value[PMPCFG_A_MSB:PMPCFG_A_LSB] = mode;
+            value[PMPCFG_R_IDX] = r;
+            value[PMPCFG_W_IDX] = w;
+            value[PMPCFG_X_IDX] = x;
+            return value;
         end
     endfunction
 
-    task automatic clear_pmp;
+    task automatic check(input string name, input logic condition);
         begin
+            tests_run++;
+            if (!condition) begin
+                tests_failed++;
+                $fatal(1, "%s", name);
+            end
+        end
+    endtask
+
+    task automatic clear_inputs;
+        begin
+            req = '0;
             for (int i = 0; i < PMP_ENTRY_COUNT; i++) begin
                 pmp_cfg[i] = '0;
                 pmp_addr[i] = '0;
@@ -67,340 +49,70 @@ module tb_pma_checker;
         end
     endtask
 
-    task automatic check_fetch(
-        input string name,
-        input logic [XLEN-1:0] address,
-        input logic expected_fault
+    task automatic make_request(
+        input int port, input mem_op_t op, input mem_op_t original,
+        input machine_privilege_t privilege, input mem_size_t size,
+        input logic [XLEN-1:0] physical_address, input logic [XLEN-1:0] virtual_address
     );
         begin
-            ctrl = '0;
-            pc = address;
-            data_addr = '0;
-            #1;
-            tests_run++;
-            if (pma_fetch_fault !== expected_fault) begin
-                tests_failed++;
-                $fatal(1, "%s: expected PMA fetch fault=%0b, got %0b", name, expected_fault, pma_fetch_fault);
-            end
-        end
-    endtask
-
-    task automatic check_data(
-        input string name,
-        input logic read,
-        input logic write,
-        input mem_size_t size,
-        input logic [XLEN-1:0] address,
-        input logic expected_read_fault,
-        input logic expected_write_fault
-    );
-        begin
-            ctrl = '0;
-            ctrl.mem_read = read;
-            ctrl.mem_write = write;
-            ctrl.mem_size = size;
-            pc = MEM_START_ADDRESS;
-            data_addr = address;
-            #1;
-            tests_run++;
-            if (pma_read_fault !== expected_read_fault || pma_write_fault !== expected_write_fault) begin
-                tests_failed++;
-                $fatal(1, "%s: expected PMA read/write faults %0b/%0b, got %0b/%0b",
-                       name, expected_read_fault, expected_write_fault, pma_read_fault, pma_write_fault);
-            end
-        end
-    endtask
-
-    task automatic check_idle;
-        begin
-            ctrl = '0;
-            pc = MEM_START_ADDRESS;
-            data_addr = '0;
-            #1;
-            tests_run++;
-            if (hardware_fault || pma_fetch_fault || pma_read_fault || pma_write_fault) begin
-                tests_failed++;
-                $fatal(1, "an instruction with no data access must not raise a PMA fault");
-            end
-        end
-    endtask
-
-    task automatic check_no_hardware_fault(
-        input string name,
-        input logic read,
-        input logic write,
-        input mem_size_t size,
-        input logic [XLEN-1:0] address
-    );
-        begin
-            ctrl = '0;
-            ctrl.mem_read = read;
-            ctrl.mem_write = write;
-            ctrl.mem_size = size;
-            pc = MEM_START_ADDRESS;
-            data_addr = address;
-            #1;
-            tests_run++;
-            if (hardware_fault) begin
-                tests_failed++;
-                $fatal(1, "%s: valid access must not raise a hardware fault", name);
-            end
-        end
-    endtask
-
-    task automatic check_faulting_addr(
-        input string name,
-        input logic read,
-        input logic write,
-        input mem_size_t size,
-        input logic [XLEN-1:0] fetch_address,
-        input logic [XLEN-1:0] access_address,
-        input logic expected_fetch_fault,
-        input logic expected_read_fault,
-        input logic expected_write_fault,
-        input logic [XLEN-1:0] expected_faulting_addr
-    );
-        begin
-            ctrl = '0;
-            ctrl.mem_read = read;
-            ctrl.mem_write = write;
-            ctrl.mem_size = size;
-            pc = fetch_address;
-            data_addr = access_address;
-            #1;
-            tests_run++;
-            if (pma_fetch_fault !== expected_fetch_fault
-                || pma_read_fault !== expected_read_fault
-                || pma_write_fault !== expected_write_fault
-                || pma_faulting_addr !== expected_faulting_addr) begin
-                tests_failed++;
-                $fatal(1, "%s: expected faults F/R/W=%0b/%0b/%0b and addr=0x%08x, got %0b/%0b/%0b and 0x%08x",
-                       name, expected_fetch_fault, expected_read_fault, expected_write_fault,
-                       expected_faulting_addr, pma_fetch_fault, pma_read_fault, pma_write_fault, pma_faulting_addr);
-            end
-        end
-    endtask
-
-    task automatic check_pmp_data(
-        input string name,
-        input machine_privilege_t privilege,
-        input logic read,
-        input logic write,
-        input mem_size_t size,
-        input logic [XLEN-1:0] address,
-        input logic expected_read_fault,
-        input logic expected_write_fault
-    );
-        begin
-            ctrl = '0;
-            ctrl.mem_read = read;
-            ctrl.mem_write = write;
-            ctrl.mem_size = size;
-            current_privilege = privilege;
-            pc = MEM_START_ADDRESS;
-            data_addr = address;
-            #1;
-            tests_run++;
-            if (pmp_read_fault !== expected_read_fault || pmp_write_fault !== expected_write_fault) begin
-                tests_failed++;
-                $fatal(1, "%s: expected PMP read/write faults %0b/%0b, got %0b/%0b",
-                       name, expected_read_fault, expected_write_fault, pmp_read_fault, pmp_write_fault);
-            end
-        end
-    endtask
-
-    task automatic check_pmp_fetch(
-        input string name,
-        input machine_privilege_t privilege,
-        input logic [XLEN-1:0] address,
-        input logic expected_fault
-    );
-        begin
-            ctrl = '0;
-            current_privilege = privilege;
-            pc = address;
-            data_addr = '0;
-            #1;
-            tests_run++;
-            if (pmp_fetch_fault !== expected_fault) begin
-                tests_failed++;
-                $fatal(1, "%s: expected PMP fetch fault=%0b, got %0b", name, expected_fault, pmp_fetch_fault);
-            end
-        end
-    endtask
-
-    task automatic check_pmp_faulting_addr(
-        input string name,
-        input logic read,
-        input logic write,
-        input mem_size_t size,
-        input logic [XLEN-1:0] address,
-        input logic [XLEN-1:0] expected_addr
-    );
-        begin
-            ctrl = '0;
-            ctrl.mem_read = read;
-            ctrl.mem_write = write;
-            ctrl.mem_size = size;
-            current_privilege = M_MODE;
-            pc = MEM_START_ADDRESS;
-            data_addr = address;
-            #1;
-            tests_run++;
-            if (pmp_faulting_addr !== expected_addr) begin
-                tests_failed++;
-                $fatal(1, "%s: expected PMP fault address 0x%016x, got 0x%016x",
-                       name, expected_addr, pmp_faulting_addr);
-            end
+            req[port] = '0;
+            req[port].valid = 1'b1;
+            req[port].op = op;
+            req[port].op_original = original;
+            req[port].effective_privilege = privilege;
+            req[port].size = size;
+            req[port].address = physical_address;
+            req[port].virtual_address = virtual_address;
         end
     endtask
 
     initial begin
         tests_run = 0;
         tests_failed = 0;
-        current_privilege = M_MODE;
-        clear_pmp();
 
-        mstatus = '0;
-        check_fetch("main memory is executable", MEM_START_ADDRESS, 1'b0);
-        check_fetch("unallocated memory is not executable", MEM_END_ADDRESS + 1, 1'b1);
-        check_fetch("fetch crossing the end of main memory is denied", MEM_END_ADDRESS - 1, 1'b1);
-        check_idle();
-        check_no_hardware_fault("valid word load", 1'b1, 1'b0, MEM_WORD, MEM_START_ADDRESS);
-        check_no_hardware_fault("valid word store", 1'b0, 1'b1, MEM_WORD, MEM_START_ADDRESS);
+        clear_inputs();
+        make_request(0, MFETCH, MFETCH, M_MODE, MEM_WORD, MEM_START_ADDRESS, 64'h4000);
+        #1;
+        check("main-memory instruction fetch is permitted", fault[0] == FAULT_NONE);
 
-        check_data("main-memory word read is allowed", 1'b1, 1'b0, MEM_WORD,
-                   MEM_START_ADDRESS, 1'b0, 1'b0);
-        check_data("main-memory word write is allowed", 1'b0, 1'b1, MEM_WORD,
-                   MEM_START_ADDRESS, 1'b0, 1'b0);
-        check_data("unallocated read is denied", 1'b1, 1'b0, MEM_BYTE,
-                   MEM_END_ADDRESS + 1, 1'b1, 1'b0);
-        check_data("unallocated write is denied", 1'b0, 1'b1, MEM_BYTE,
-                   MEM_END_ADDRESS + 1, 1'b0, 1'b1);
-        check_data("word crossing out of main memory is denied", 1'b1, 1'b0, MEM_WORD,
-                   MEM_END_ADDRESS - 1, 1'b1, 1'b0);
-        check_fetch("timer MMIO is not executable", MTIME_ADDR, 1'b1);
-        check_data("timer MMIO read is allowed", 1'b1, 1'b0, MEM_DOUBLE,
-                   MTIME_ADDR, 1'b0, 1'b0);
-        check_data("timer compare MMIO write is allowed", 1'b0, 1'b1, MEM_DOUBLE,
-                   MTIMECMP_ADDR, 1'b0, 1'b0);
-        check_faulting_addr("misaligned timer doubleword load is denied", 1'b1, 1'b0, MEM_DOUBLE,
-                            MEM_START_ADDRESS, MTIME_ADDR + 1,
-                            1'b0, 1'b1, 1'b0, MTIME_ADDR + 1);
-        check_faulting_addr("misaligned timer doubleword store is denied", 1'b0, 1'b1, MEM_DOUBLE,
-                            MEM_START_ADDRESS, MTIME_ADDR + 1,
-                            1'b0, 1'b0, 1'b1, MTIME_ADDR + 1);
-        check_faulting_addr("timer byte load is denied", 1'b1, 1'b0, MEM_BYTE,
-                            MEM_START_ADDRESS, MTIME_ADDR,
-                            1'b0, 1'b1, 1'b0, MTIME_ADDR);
-        check_faulting_addr("timer byte store is denied", 1'b0, 1'b1, MEM_BYTE,
-                            MEM_START_ADDRESS, MTIME_ADDR,
-                            1'b0, 1'b0, 1'b1, MTIME_ADDR);
-        check_data("memory after timer MMIO is unallocated", 1'b1, 1'b0, MEM_BYTE,
-                   MTIMECMP_ADDR + 8, 1'b1, 1'b0);
+        clear_inputs();
+        make_request(0, MREAD, MREAD, M_MODE, MEM_DOUBLE, MEM_END_ADDRESS - 3, 64'h4008);
+        #1;
+        check("access spanning the PMA boundary faults", fault[0] == PMA_READ);
+        check("fault address is the request virtual address", fault_addr[0] == 64'h4008);
 
-        check_faulting_addr("load selects the lowest failing byte", 1'b1, 1'b0, MEM_WORD,
-                            MEM_START_ADDRESS, MEM_END_ADDRESS - 1,
-                            1'b0, 1'b1, 1'b0, MEM_END_ADDRESS + 1);
-        check_faulting_addr("store selects the lowest failing byte", 1'b0, 1'b1, MEM_WORD,
-                            MEM_START_ADDRESS, MEM_END_ADDRESS + 1,
-                            1'b0, 1'b0, 1'b1, MEM_END_ADDRESS + 1);
-        check_faulting_addr("fetch selects the first failing instruction byte", 1'b0, 1'b0, MEM_NONE,
-                            MEM_END_ADDRESS - 1, '0,
-                            1'b1, 1'b0, 1'b0, MEM_END_ADDRESS + 1);
-        check_faulting_addr("fetch fault address wins over a data fault", 1'b1, 1'b0, MEM_WORD,
-                            MEM_END_ADDRESS + 8, MEM_END_ADDRESS - 1,
-                            1'b1, 1'b1, 1'b0, MEM_END_ADDRESS + 8);
+        clear_inputs();
+        // Permit PMP access through this otherwise invalid PMA address so the
+        // test isolates the PMA result and its original-operation attribution.
+        pmp_cfg[0] = pmpcfg(PMP_TOR, 1'b1, 1'b1, 1'b1);
+        pmp_addr[0] = (XLEN'(MEM_END_ADDRESS) + 64'd16) >> 2;
+        make_request(0, MREAD, MFETCH, S_MODE, MEM_DOUBLE,
+                     MEM_END_ADDRESS + 1, 64'hffff_ffff_8000_1000);
+        #1;
+        check("PTW PMA denial retains original fetch attribution", fault[0] == PMA_FETCH);
+        check("PTW PMA denial reports original virtual address",
+              fault_addr[0] == 64'hffff_ffff_8000_1000);
 
-        // PMP tests: all PMP exceptions are checked independently of PMA exceptions.
-        clear_pmp();
-        check_pmp_data("M mode allows an unmatched read", M_MODE, 1'b1, 1'b0, MEM_WORD,
-                       MEM_START_ADDRESS, 1'b0, 1'b0);
-        check_pmp_fetch("M mode allows an unmatched fetch", M_MODE, MEM_START_ADDRESS, 1'b0);
+        clear_inputs();
+        pmp_cfg[0] = pmpcfg(PMP_NAPOT, 1'b1, 1'b0, 1'b0);
+        pmp_addr[0] = 64'h1ff; // 4 KiB NAPOT range at physical address zero
+        make_request(0, MWRITE, MWRITE, S_MODE, MEM_WORD, 64'h100, 64'h5000);
+        make_request(1, MREAD, MREAD, S_MODE, MEM_WORD, 64'h100, 64'h6000);
+        #1;
+        check("PMP denies an S-mode write without W permission", fault[0] == PMP_WRITE);
+        check("PMP permits a concurrently issued read with R permission", fault[1] == FAULT_NONE);
 
-        clear_pmp();
-        pmp_cfg[0] = pmpcfg(1'b0, PMP_NA4, 1'b0, 1'b0, 1'b0);
-        pmp_addr[0] = (MEM_START_ADDRESS + 32'h100) >> 2;
-        check_pmp_data("unlocked M PMP bypasses write permission", M_MODE, 1'b0, 1'b1, MEM_BYTE,
-                       MEM_START_ADDRESS + 32'h100, 1'b0, 1'b0);
-
-        clear_pmp();
-        pmp_cfg[0] = pmpcfg(1'b1, PMP_NA4, 1'b0, 1'b0, 1'b1);
-        pmp_addr[0] = (MEM_START_ADDRESS + 32'h100) >> 2;
-        check_pmp_data("locked M PMP allows read", M_MODE, 1'b1, 1'b0, MEM_BYTE,
-                       MEM_START_ADDRESS + 32'h100, 1'b0, 1'b0);
-        check_pmp_data("locked M PMP denies write", M_MODE, 1'b0, 1'b1, MEM_BYTE,
-                       MEM_START_ADDRESS + 32'h100, 1'b0, 1'b1);
-
-        clear_pmp();
-        pmp_cfg[0] = pmpcfg(1'b1, PMP_TOR, 1'b0, 1'b1, 1'b1);
-        pmp_addr[0] = (MEM_END_ADDRESS + 1) >> 2;
-        check_pmp_fetch("locked M PMP denies execute without X", M_MODE, MEM_START_ADDRESS, 1'b1);
-
-        clear_pmp();
-        check_pmp_data("U mode denies unmatched access when PMP exists", U_MODE, 1'b1, 1'b0, MEM_BYTE,
-                       MEM_START_ADDRESS, 1'b1, 1'b0);
-        check_pmp_fetch("U mode denies unmatched fetch when all entries are OFF", U_MODE,
-                        MEM_START_ADDRESS, 1'b1);
-
-        clear_pmp();
-        pmp_cfg[0] = pmpcfg(1'b0, PMP_TOR, 1'b1, 1'b0, 1'b0);
-        pmp_addr[0] = (MEM_END_ADDRESS + 1) >> 2;
-        check_pmp_fetch("execute-only PMP region permits U-mode fetch", U_MODE, MEM_START_ADDRESS, 1'b0);
-        check_pmp_data("execute-only PMP region denies U-mode read", U_MODE, 1'b1, 1'b0, MEM_BYTE,
-                       MEM_START_ADDRESS, 1'b1, 1'b0);
-
-        clear_pmp();
-        pmp_addr[0] = (MEM_START_ADDRESS + 32'h100) >> 2;
-        pmp_cfg[1] = pmpcfg(1'b0, PMP_TOR, 1'b0, 1'b1, 1'b1);
-        pmp_addr[1] = (MEM_START_ADDRESS + 32'h110) >> 2;
-        check_pmp_data("TOR uses the preceding PMP address as its lower bound", U_MODE,
-                       1'b1, 1'b0, MEM_BYTE, MEM_START_ADDRESS + 32'h104, 1'b0, 1'b0);
-        check_pmp_data("TOR does not match below its preceding PMP address", U_MODE,
-                       1'b1, 1'b0, MEM_BYTE, MEM_START_ADDRESS + 32'h0fc, 1'b1, 1'b0);
-
-        clear_pmp();
-        pmp_cfg[0] = pmpcfg(1'b1, PMP_NAPOT, 1'b0, 1'b0, 1'b1);
-        pmp_addr[0] = ((MEM_START_ADDRESS + 32'h200) >> 2) | 32'h3;
-        check_pmp_data("NAPOT read is allowed", M_MODE, 1'b1, 1'b0, MEM_BYTE,
-                       MEM_START_ADDRESS + 32'h210, 1'b0, 1'b0);
-        check_pmp_data("NAPOT write is denied", M_MODE, 1'b0, 1'b1, MEM_BYTE,
-                       MEM_START_ADDRESS + 32'h210, 1'b0, 1'b1);
-
-        clear_pmp();
-        pmp_cfg[0] = pmpcfg(1'b0, PMP_NA4, 1'b0, 1'b0, 1'b1);
-        pmp_addr[0] = (MEM_START_ADDRESS + 32'h008) >> 2;
-        pmp_cfg[1] = pmpcfg(1'b1, PMP_NAPOT, 1'b0, 1'b0, 1'b1);
-        pmp_addr[1] = (MEM_START_ADDRESS >> 2) | 32'h3;
-        check_pmp_data("lowest PMP entry wins and partial coverage faults", M_MODE, 1'b1, 1'b0, MEM_WORD,
-                       MEM_START_ADDRESS + 32'h006, 1'b1, 1'b0);
-
-        clear_pmp();
-        pmp_cfg[0] = pmpcfg(1'b1, PMP_NA4, 1'b0, 1'b0, 1'b0);
-        pmp_addr[0] = (MEM_START_ADDRESS + 32'h100) >> 2;
-        pmp_cfg[1] = pmpcfg(1'b1, PMP_NAPOT, 1'b0, 1'b0, 1'b1);
-        pmp_addr[1] = ((MEM_START_ADDRESS + 32'h100) >> 2) | 32'h3;
-        check_pmp_data("lowest matching PMP permission wins", M_MODE, 1'b1, 1'b0, MEM_BYTE,
-                       MEM_START_ADDRESS + 32'h100, 1'b1, 1'b0);
-
-        clear_pmp();
-        pmp_cfg[0] = pmpcfg(1'b0, PMP_TOR, 1'b1, 1'b1, 1'b1);
-        pmp_addr[0] = 32'h4000_0000;
-        check_pmp_data("TOR top at 2^32 covers 32-bit data address", U_MODE, 1'b1, 1'b0, MEM_WORD,
-                       MEM_START_ADDRESS, 1'b0, 1'b0);
-        check_pmp_fetch("TOR top at 2^32 covers a low fetch address", U_MODE, MEM_START_ADDRESS, 1'b0);
-
-        clear_pmp();
-        pmp_cfg[1] = pmpcfg(1'b1, PMP_NA4, 1'b0, 1'b0, 1'b0);
-        pmp_addr[1] = (MEM_START_ADDRESS + 32'h100) >> 2;
-        check_pmp_faulting_addr("PMP data fault reports the original access address", 1'b0, 1'b1, MEM_BYTE,
-                                MEM_START_ADDRESS + 32'h100, MEM_START_ADDRESS + 32'h100);
+        clear_inputs();
+        pmp_cfg[0] = pmpcfg(PMP_NAPOT, 1'b1, 1'b0, 1'b0);
+        pmp_addr[0] = 64'h1ff;
+        make_request(0, MWRITE, MWRITE, M_MODE, MEM_WORD, 64'h100, 64'h7000);
+        #1;
+        check("unlocked PMP permissions are bypassed in M mode", fault[0] == FAULT_NONE);
 
         if (tests_failed == 0) begin
             $display("tb_pma_checker: all %0d checks passed", tests_run);
             $finish;
-        end else begin
+        end else
             $fatal(1, "tb_pma_checker: %0d of %0d checks failed", tests_failed, tests_run);
-        end
     end
 endmodule : tb_pma_checker

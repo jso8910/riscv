@@ -3,11 +3,11 @@ import riscv::*;
 module riscv_core (
     input logic                 clk,
     input logic                 rst_n,
-    input logic [IALIGN-1:0]    inst_i,
+    input logic [WWIDTH-1:0]      inst_mem_data_i,
     input logic [WWIDTH-1:0]    data_mem_data_i,
     input logic [XLEN-1:0]      time_i,
 
-    output logic [XLEN-1:0]     pc_o,
+    output logic [XLEN-1:0]     inst_mem_addr_o,
     output logic [WWIDTH/8-1:0] data_mem_we_o,
     output logic [XLEN-1:0]     data_mem_addr_o,
     output logic [WWIDTH-1:0]   data_mem_data_o,
@@ -18,31 +18,55 @@ module riscv_core (
     // ================
     ctrl_t ctrl;
     trap_t trap;
+    mem_res_t [1:0] mem_res;
     machine_privilege_t machine_privilege;
     logic [XLEN-1:0] next_pc, rs1_data, rs2_data, csr_val,
                      alu_res, imm, mem_content, op1, mepc, mtvec,
-                     pma_faulting_addr, pmp_faulting_addr, mstatus,
+                     mstatus, inst_mem_fault_addr_q, inst_page_fault_addr_q,
                      stimecmp, mip, mie, sie, medeleg, mideleg,
-                     mtimecmp, sip, stvec, sepc;
+                     mtimecmp, sip, stvec, sepc, page_fault_addr,
+                     satp, inst_pc, fetch_pc;
     logic csr_illegal_inst, commit, retire_count, cycle_tick, address_misaligned,
-          pma_instruction_fetch_exception, pma_write_exception, pma_read_exception,
-          memory_checker_hardware_fault, hardware_fault, pmp_write_exception, pmp_read_exception,
-          pmp_instruction_fetch_exception, mtimecmp_we, mtip, stip, ptw_stall, stall;
+          hardware_fault, inst_page_fault_q, data_ptw_stall, pc_ptw_stall,
+          mtimecmp_we, mtip, stip, ptw_flush,
+          load_page_fault, store_page_fault, fetch_page_fault, inst_valid;
 
     logic [7:0]      pmp_cfg [0:63];
     logic [XLEN-1:0] pmp_addr [0:63];
 
+    logic [IALIGN-1:0] inst_q;
+
+    mem_fault_t [MEM_READ_PORTS-1:0] mem_fault, mem_fault_q;
+    mem_fault_t inst_mem_fault_q;
+    logic [MEM_READ_PORTS-1:0][XLEN-1:0] mem_fault_addr, mem_fault_addr_q;
+    mem_req_t [MEM_READ_PORTS-1:0] mem_req;
+
     // ===========
     // Assignments
     // ===========
+    // mem_fault and mem_fault_addr are partially buffered to take into account that fetches happen
+    // speculatively one instruction in advance
+    assign mem_fault_q[0] = mem_fault[0];
+    assign mem_fault_q[1] = inst_mem_fault_q;
+    assign mem_fault_addr_q[0] = mem_fault_addr[0];
+    assign mem_fault_addr_q[1] = inst_mem_fault_addr_q;
+
     assign data_mem_data_o = rs2_data;
+    assign data_mem_addr_o = mem_req[0].address;
+    assign inst_mem_addr_o = mem_req[1].address;
+
+    assign mem_content = mem_res[0].data;
     // suppress side effects on trap
-    assign commit = ~trap.is_trap & ~ptw_stall;
+    assign commit = ~trap.is_trap & ~data_ptw_stall & inst_valid;
     assign cycle_tick = '1;
     assign retire_count = commit;
 
-    // hardware fault logic (bitwise OR :P)
-    assign hardware_fault = memory_checker_hardware_fault;
+    // hardware fault logic (none so far)
+    assign hardware_fault = '0;
+
+    // Stop the current PTW if it is interrupted. Currently, that only happens on a trap. In the
+    // future, this may happen with branch mispredicts, data hazards, or any cause of a pipeline flush.
+    assign ptw_flush = trap.is_trap;
 
     // =====================
     // =====================
@@ -56,13 +80,27 @@ module riscv_core (
     fetch u_fetch (
         .clk          (clk),
         .rst_n        (rst_n),
+        .fetch_mem_res_i(mem_res[1]),
+        .fetch_mem_req_i(mem_req[1]),
+        .fetch_page_fault_i(fetch_page_fault),
+        .fetch_page_fault_addr_i(page_fault_addr),
+        .fetch_mem_fault_addr_i(mem_fault_addr[1]),
+        .fetch_mem_fault_i(mem_fault[1]),
         .next_pc_i    (next_pc),
-        .pc_o         (pc_o)
+        .commit_i     (commit),
+        .inst_pc_o    (inst_pc),
+        .fetch_pc_o   (fetch_pc),
+        .inst_o       (inst_q),
+        .inst_valid_o (inst_valid),
+        .inst_mem_fault_q(inst_mem_fault_q),
+        .inst_mem_fault_addr_q(inst_mem_fault_addr_q),
+        .inst_page_fault_q(inst_page_fault_q),
+        .inst_page_fault_addr_q(inst_page_fault_addr_q)
     );
 
     next_pc_unit u_next_pc_unit (
         .ctrl_i        (ctrl),
-        .pc_i          (pc_o),
+        .pc_i          (inst_pc),
         .rs1_data_i    (rs1_data),
         .rs2_data_i    (rs2_data),
         .alu_res_i     (alu_res),
@@ -79,7 +117,8 @@ module riscv_core (
     // Decode/control
     // ==============
     control_unit u_control_unit (
-        .inst_i    (inst_i),
+        .inst_i    (inst_q),
+        .inst_valid_i(inst_valid),
         .current_privilege_i(machine_privilege),
         .imm_o     (imm),
         .ctrl_o    (ctrl)
@@ -94,15 +133,14 @@ module riscv_core (
         .csr_illegal_inst_i  (csr_illegal_inst),
         .address_misaligned_i(address_misaligned),
 
-        .pma_instruction_fetch_exception_i(pma_instruction_fetch_exception),
-        .pma_write_exception_i(pma_write_exception),
-        .pma_read_exception_i(pma_read_exception),
-        .pma_faulting_addr_i (pma_faulting_addr),
-
-        .pmp_instruction_fetch_exception_i(pmp_instruction_fetch_exception),
-        .pmp_read_exception_i(pmp_read_exception),
-        .pmp_write_exception_i(pmp_write_exception),
-        .pmp_faulting_addr_i(pmp_faulting_addr),
+        .mem_fault_i         (mem_fault_q),
+        .mem_fault_addr_i    (mem_fault_addr_q),
+        .load_page_fault_i   (load_page_fault),
+        .store_page_fault_i  (store_page_fault),
+        .fetch_page_fault_i  (inst_page_fault_q),
+        // instruction page fault takes priority. inst_page_fault_addr_q is just page_fault_addr
+        // buffered by one cycle
+        .page_fault_addr_i   (inst_page_fault_q ? inst_page_fault_addr_q : page_fault_addr),
 
         .mip_i               (mip),
         .mie_i               (mie),
@@ -112,7 +150,7 @@ module riscv_core (
         .mideleg_i           (mideleg),
         .medeleg_i           (medeleg),
         .current_privilege_i (machine_privilege),
-        .pc_i                (pc_o),
+        .pc_i                (inst_pc),
         .trap_o              (trap)
     );
 
@@ -134,7 +172,7 @@ module riscv_core (
     always_comb begin
         case (ctrl.op1_src)
             RS1 : op1 = rs1_data;
-            PC : op1 = pc_o;
+            PC : op1 = inst_pc;
             default: $fatal(1);
         endcase
     end
@@ -160,7 +198,7 @@ module riscv_core (
         .commit_i      (commit),
         .alu_i         (alu_res),
         .mem_i         (mem_content),
-        .pc_i          (pc_o),
+        .pc_i          (inst_pc),
         .csr_i         (csr_val),
         .imm_i         (imm),
         .rs1_data_o    (rs1_data),
@@ -173,8 +211,8 @@ module riscv_core (
     csrfile u_csrfile (
         .clk                (clk),
         .rst_n              (rst_n),
-        .ctrl_i             (ctrl),
         .commit_i           (commit),
+        .ctrl_i             (ctrl),
         .cycle_tick_i       (cycle_tick),
         .retire_count_i     (retire_count),
         .rs1_i              (rs1_data),
@@ -195,48 +233,68 @@ module riscv_core (
         .mie_o              (mie),
         .sip_o              (sip),
         .sie_o              (sie),
+        .satp_o             (satp),
         .medeleg_o          (medeleg),
         .mideleg_o          (mideleg),
         .csr_illegal_inst_o (csr_illegal_inst),
         .machine_privilege_o(machine_privilege)
     );
 
-    // =================
-    // Memory controller
-    // =================
-    memory_controller u_memory_controller (
-        .data_i    (data_mem_data_i),
+    // ============
+    // Memory units
+    // ============
+
+    memory_management_unit memory_management_unit (
+        .clk                (clk),
+        .rst_n              (rst_n),
+        .commit_i           (commit),
+        .ctrl_i             (ctrl),
+        .rs1_data_i         (rs1_data),
+        .rs2_data_i         (rs2_data),
+        .addr_i             (alu_res),
+        .pc_i               (fetch_pc),
+        .mem_res_i          (mem_res),
+        .pmp_cfg_i          (pmp_cfg),
+        .pmp_addr_i         (pmp_addr),
+        .ptw_flush_i        (ptw_flush),
         .current_privilege_i(machine_privilege),
-        .mtime_i   (time_i),
-        .mtimecmp_i(mtimecmp),
-        .addr_i    (alu_res),
-        .ctrl_i    (ctrl),
-        .commit_i  (commit),
-        .data_o    (mem_content),
-        .we_o      (data_mem_we_o),
-        .mtime_we_o(mtime_we_o),
-        .mtimecmp_we_o(mtimecmp_we),
-        .phys_addr_o(data_mem_addr_o),
-        .ptw_stall_o(ptw_stall)
+        .mstatus_i          (mstatus),
+        .satp_i             (satp),
+        .mem_req_o          (mem_req),
+        .data_ptw_stall_o   (data_ptw_stall),
+        .pc_ptw_stall_o     (pc_ptw_stall),
+        .load_page_fault_o  (load_page_fault),
+        .store_page_fault_o (store_page_fault),
+        .fetch_page_fault_o (fetch_page_fault),
+        .page_fault_addr_o  (page_fault_addr),
+        .mem_fault_o        (mem_fault),
+        .mem_fault_addr_o   (mem_fault_addr)
     );
 
-    physical_memory_checker u_physical_memory_checker (
-        .current_privilege_i              (machine_privilege),
-        .pmp_cfg_i                        (pmp_cfg),
-        .pmp_addr_i                       (pmp_addr),
-        .pc_i                             (pc_o),
-        .ctrl_i                           (ctrl),
-        .data_mem_addr_i                  (data_mem_addr_o),
-        .mstatus_i                        (mstatus),
-        .pma_instruction_fetch_exception_o(pma_instruction_fetch_exception),
-        .pma_write_exception_o            (pma_write_exception),
-        .pma_read_exception_o             (pma_read_exception),
-        .hardware_fault_o                 (memory_checker_hardware_fault),
-        .pma_faulting_addr_o              (pma_faulting_addr),
-        .pmp_write_exception_o            (pmp_write_exception),
-        .pmp_read_exception_o             (pmp_read_exception),
-        .pmp_instruction_fetch_exception_o(pmp_instruction_fetch_exception),
-        .pmp_faulting_addr_o              (pmp_faulting_addr)
+    // Each memory controller is for a separate read port
+    memory_controller data_mem_ctrl (
+        .data_i       (data_mem_data_i),
+        .mtime_i      (time_i),
+        .mtimecmp_i   (mtimecmp),
+        .mem_req_i    (mem_req[0]),
+        .commit_i     (commit),
+        .res_o        (mem_res[0]),
+        .we_o         (data_mem_we_o),
+        .mtime_we_o   (mtime_we_o),
+        .mtimecmp_we_o(mtimecmp_we)
+    );
+
+    memory_controller inst_mem_ctrl (
+        .data_i       (inst_mem_data_i),
+        .mtime_i      (time_i),
+        .mtimecmp_i   (mtimecmp),
+        .mem_req_i    (mem_req[1]),
+        .commit_i     (commit),
+        .res_o        (mem_res[1]),
+        // This memory controller can't write
+        .we_o         (),
+        .mtime_we_o   (),
+        .mtimecmp_we_o()
     );
 endmodule
 
@@ -247,14 +305,12 @@ module riscv_system #(
     input logic rst_n
 );
     // Wire instantiations (_i and _o suffixes from perspective of riscv_core)
-    logic [IALIGN-1:0] inst_i;
     logic [WWIDTH-1:0] data_mem_data_i, data_mem_data_o, data_mem_2;
-    logic [XLEN-1:0] pc_o, data_mem_addr_o;
+    logic [XLEN-1:0] inst_mem_addr_o, data_mem_addr_o;
     logic [WWIDTH/8-1:0] data_mem_we_o;
     logic [XLEN-1:0] mtime;
     logic mtime_we;
 
-    assign inst_i = data_mem_2[31:0];
 
     // Simple platform timer.  It advances with the core clock and can be set
     // through a store to the MTIME MMIO register.
@@ -271,10 +327,10 @@ module riscv_system #(
     riscv_core u_riscv_core (
         .clk                (clk),
         .rst_n              (rst_n),
-        .inst_i             (inst_i),
+        .inst_mem_data_i    (data_mem_2),
         .data_mem_data_i    (data_mem_data_i),
-        .time_i              (mtime),
-        .pc_o               (pc_o),
+        .time_i             (mtime),
+        .inst_mem_addr_o    (inst_mem_addr_o),
         .data_mem_we_o      (data_mem_we_o),
         .data_mem_addr_o    (data_mem_addr_o),
         .data_mem_data_o    (data_mem_data_o),
@@ -291,7 +347,7 @@ module riscv_system #(
     ) data_sram (
         .clk              (clk),
         .address_1_i      (data_mem_addr_o[PHYS_ADDR_WIDTH-1:0]),
-        .address_2_i      (pc_o[PHYS_ADDR_WIDTH-1:0]),
+        .address_2_i      (inst_mem_addr_o[PHYS_ADDR_WIDTH-1:0]),
         .data_i           (data_mem_data_o),
         .we_i             (data_mem_we_o),
         .data_1_o         (data_mem_data_i),
