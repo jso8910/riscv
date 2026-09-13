@@ -28,12 +28,43 @@ module memory_management_unit (
     output logic [MEM_READ_PORTS-1:0][XLEN-1:0] mem_fault_addr_o
 );
     logic data_lookup_en, pc_lookup_en,
-          data_page_fault, pc_page_fault, data_ptw_mem_read, pc_ptw_mem_read,
+          data_page_fault, pc_page_fault,
           data_paddr_ready, pc_paddr_ready;
 
-    logic [XLEN-1:0] data_ptw_mem_addr, pc_ptw_mem_addr, data_paddr, pc_paddr;
+    logic [XLEN-1:0] data_paddr, pc_paddr;
+    logic [MEM_READ_PORTS-1:0] tlb_miss, walk_page_fault, tlb_fill_valid,
+                               ptw_mem_read, ptw_pte_valid;
+    logic [MEM_READ_PORTS-1:0][XLEN-1:0] ptw_mem_addr;
+    logic [XLEN-1:0] ptw_vaddr [MEM_READ_PORTS-1:0];
+    logic [XLEN-1:0] ptw_pte [MEM_READ_PORTS-1:0];
+    tlb_entry_t tlb_fill_entry [MEM_READ_PORTS-1:0];
     mem_req_t [MEM_READ_PORTS-1:0] raw_req;
 
+    for (genvar i = 0; i < MEM_READ_PORTS; i++) begin
+        assign ptw_vaddr[i] = raw_req[i].virtual_address;
+        assign ptw_pte[i] = mem_res_i[i].data;
+        assign ptw_pte_valid[i] = mem_res_i[i].valid;
+    end
+
+    page_table_walker page_table_walker (
+        .clk              (clk),
+        .rst_n            (rst_n),
+        .miss_i           (tlb_miss),
+        .vaddr_i          (ptw_vaddr),
+        .pte_i            (ptw_pte),
+        .pte_valid_i      (ptw_pte_valid),
+        .satp_i           (satp_i),
+        .commit_i         (commit_i),
+        .ctrl_i           (ctrl_i),
+        .rs1_data_i       (rs1_data_i),
+        .rs2_data_i       (rs2_data_i),
+        .ptw_flush_i      (ptw_flush_i),
+        .ptw_mem_addr_o   (ptw_mem_addr),
+        .ptw_mem_read_o   (ptw_mem_read),
+        .walk_page_fault_o(walk_page_fault),
+        .fill_valid_o     (tlb_fill_valid),
+        .fill_entry_o     (tlb_fill_entry)
+    );
 
     translation_lookaside_buffer data_translation_lookaside_buffer (
         .clk                (clk),
@@ -48,14 +79,13 @@ module memory_management_unit (
         .mstatus_i          (mstatus_i),
         .satp_i             (satp_i),
         .vaddr_i            (raw_req[0].virtual_address),
-        .pte_i              (mem_res_i[0].data),
-        .pte_valid_i        (mem_res_i[0].valid),
-        .ptw_flush_i        (ptw_flush_i),
+        .walk_page_fault_i  (walk_page_fault[0]),
+        .fill_valid_i       (tlb_fill_valid[0]),
+        .fill_entry_i       (tlb_fill_entry[0]),
         .paddr_o            (data_paddr),
         .paddr_ready_o      (data_paddr_ready),
         .ptw_stall_o        (data_ptw_stall_o),
-        .ptw_mem_addr_o     (data_ptw_mem_addr),
-        .ptw_mem_read_o     (data_ptw_mem_read),
+        .miss_o             (tlb_miss[0]),
         .page_fault_o       (data_page_fault)
     );
 
@@ -72,14 +102,13 @@ module memory_management_unit (
         .mstatus_i          (mstatus_i),
         .satp_i             (satp_i),
         .vaddr_i            (raw_req[1].virtual_address),
-        .pte_i              (mem_res_i[1].data),
-        .pte_valid_i        (mem_res_i[1].valid),
-        .ptw_flush_i        (ptw_flush_i),
+        .walk_page_fault_i  (walk_page_fault[1]),
+        .fill_valid_i       (tlb_fill_valid[1]),
+        .fill_entry_i       (tlb_fill_entry[1]),
         .paddr_o            (pc_paddr),
         .paddr_ready_o      (pc_paddr_ready),
         .ptw_stall_o        (pc_ptw_stall_o),
-        .ptw_mem_addr_o     (pc_ptw_mem_addr),
-        .ptw_mem_read_o     (pc_ptw_mem_read),
+        .miss_o             (tlb_miss[1]),
         .page_fault_o       (pc_page_fault)
     );
 
@@ -148,10 +177,10 @@ module memory_management_unit (
             if (data_paddr_ready) begin
                 mem_req_o[0].address = data_paddr;
             end else begin
-                // Otherwise read a double word from memory if the TLB is requesting it
+                // Otherwise read a double word from memory if the shared PTW is requesting it
                 // (*_ptw_mem_read is the signal which controls that).
-                mem_req_o[0].valid               = data_ptw_mem_read;
-                mem_req_o[0].address             = data_ptw_mem_addr;
+                mem_req_o[0].valid               = ptw_mem_read[0];
+                mem_req_o[0].address             = ptw_mem_addr[0];
                 mem_req_o[0].size                = MEM_DOUBLE;
                 mem_req_o[0].op                  = MREAD;
                 // Page table walks have an effective privilege (for PTE/PMP) of S
@@ -163,8 +192,8 @@ module memory_management_unit (
             if (pc_paddr_ready) begin
                 mem_req_o[1].address = pc_paddr;
             end else begin
-                mem_req_o[1].valid               = pc_ptw_mem_read;
-                mem_req_o[1].address             = pc_ptw_mem_addr;
+                mem_req_o[1].valid               = ptw_mem_read[1];
+                mem_req_o[1].address             = ptw_mem_addr[1];
                 mem_req_o[1].size                = MEM_DOUBLE;
                 mem_req_o[1].op                  = MREAD;
                 mem_req_o[1].effective_privilege = S_MODE;

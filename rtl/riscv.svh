@@ -654,4 +654,68 @@ package riscv;
         // logic        cacheable;
         // logic        atomic;
     } pma_cfg_t;
+
+    function automatic [26:0] vpn_mask(
+        input logic [2:0] leaf_level,
+        input [26:0] vpn
+    );
+        if (leaf_level == 0) begin
+            return vpn;
+        end else if (leaf_level == 1) begin
+            return {vpn[26:9], 9'b0};
+        end else if (leaf_level == 2) begin
+            return {vpn[26:18], 18'b0};
+        end
+        // fallback
+        return vpn;
+    endfunction
+
+    function automatic [8:0] vpn_index(
+        input logic [2:0] level,
+        input [26:0] vpn
+    );
+        if (level == 0) begin
+            return vpn[8:0];
+        end else if (level == 1) begin
+            return vpn[17:9];
+        end else if (level == 2) begin
+            return vpn[26:18];
+        end
+        // fallback
+        return vpn[8:0];
+    endfunction
+
+    function automatic [43:0] ppn_index(
+        input logic [2:0] level,
+        input [43:0] ppn
+    );
+        if (level == 0) begin
+            return 44'(ppn[8:0]);
+        end else if (level == 1) begin
+            return 44'(ppn[17:9]);
+        end else if (level == 2) begin
+            return 44'(ppn[43:18]);
+        end
+        // fallback
+        return 44'(ppn[8:0]);
+    endfunction
+
+    function automatic logic [XLEN-1:0] ppn_to_addr(
+        input logic [2:0] leaf_level,
+        input logic [XLEN-1:0] vaddr,
+        input logic [43:0] ppn
+    );
+        if (leaf_level == 0) begin
+            // 56 bit physical address, zero extended to XLEN (64)
+            return {8'b0, ppn, vaddr[11:0]};
+        end else if (leaf_level == 1) begin
+            // This is a megapage - the first VPN field is part of the offset
+            return {8'b0, ppn[43:9], vaddr[20:0]};
+        end else if (leaf_level == 2) begin
+            // This is a gigapage - the first two VPN fields are part of the offset
+            return {8'b0, ppn[43:18], vaddr[29:0]};
+        end
+        // fallback, should not be accessed
+        return {8'b0, ppn, vaddr[11:0]};
+    endfunction
 endpackage

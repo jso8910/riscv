@@ -455,16 +455,16 @@ function automatic logic [XLEN-1:0] legalize_csr_write(
         // no bits can be written
         MSECCFG : legalize_csr_write = (value & 'b0) | (prev_val & (~'b0));
         // bit 1 cannot be set to anything other than 0, bits 3-63 are read only
-        MCOUNTINHIBIT : legalize_csr_write = value & ((XLEN'(1) << COUNT_CY)
-                                                     | (XLEN'(1) << COUNT_IR));
+        MCOUNTINHIBIT : legalize_csr_write = value & ((XLEN'('1) << COUNT_CY)
+                                                     | (XLEN'('1) << COUNT_IR));
         SSTATUS : legalize_csr_write = (value & SSTATUS_WRITE_MASK)
                                      | (prev_val & (~SSTATUS_WRITE_MASK));
         SIE : legalize_csr_write = (value & SUPERVISOR_INTERRUPT_MASK & mideleg) | (prev_val & (~(SUPERVISOR_INTERRUPT_MASK & mideleg)));
         // SSIP is the only supervisor pending bit this implementation lets
         // software raise or clear.  As a supervisor CSR view, it is writable
         // only after M-mode delegates that interrupt class.
-        SIP : legalize_csr_write = (value & (XLEN'(1) << S_SOFTWARE) & mideleg)
-                    | (prev_val & ~((XLEN'(1) << S_SOFTWARE) & mideleg));
+        SIP : legalize_csr_write = (value & (XLEN'('1) << S_SOFTWARE) & mideleg)
+                    | (prev_val & ~((XLEN'('1) << S_SOFTWARE) & mideleg));
         SEPC : legalize_csr_write = value & ~(XLEN'('d3));
         STVEC : begin
             legalize_csr_write = value;

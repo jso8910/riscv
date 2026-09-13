@@ -320,7 +320,7 @@ module riscv_system #(
         else if (mtime_we)
             mtime <= data_mem_data_o;
         else
-            mtime <= mtime + XLEN'(1);
+            mtime <= mtime + XLEN'('1);
     end
 
     // CPU core

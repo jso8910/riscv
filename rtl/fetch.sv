@@ -72,30 +72,5 @@ module fetch (
             inst_page_fault_q <= 1'b0;
             inst_mem_fault_q <= FAULT_NONE;
         end
-        // end else if (fetch_outcome_valid && (!inst_valid_o || commit_i)) begin
-        //     // The reason we latch the instruction is because, when we are in a stall state, it is
-        //     // important that the instruction isn't changed. Currently, this is relevant if we are
-        //     // executing a page tree walk to find the physical memory page of the next instruction
-        //     // --- we need control signals to stay constant while that is happening.
-        //     inst_o <= fetch_mem_res_i.data[31:0];
-
-        //     // Check for a mispredict
-        //     if (fetch_pc_o != next_pc_i) begin
-        //         inst_valid_o <= '0;
-        //         fetch_pc_o <= next_pc_i;
-        //     end else begin
-        //         // Simple branch speculation - assume sequential execution
-        //         fetch_pc_o <= fetch_pc_o + 4;
-        //         inst_pc_o <= fetch_pc_o;
-        //         if (fetch_mem_req_i.op == MFETCH && fetch_mem_res_i.valid) begin
-        //             inst_valid_o <= '1;
-        //         end
-        //         // We need to buffer fetch faults by one cycle so they raise at the right cycle
-        //         inst_page_fault_q <= fetch_page_fault_i;
-        //         inst_mem_fault_q <= fetch_mem_fault_i;
-        //         inst_mem_fault_addr_q <= fetch_mem_fault_addr_i;
-        //         inst_page_fault_addr_q <= fetch_page_fault_addr_i;
-        //     end
-        // end
     end
 endmodule

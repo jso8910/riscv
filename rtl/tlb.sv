@@ -13,14 +13,13 @@ module translation_lookaside_buffer (
     input logic [XLEN-1:0]     mstatus_i,
     input logic [XLEN-1:0]     satp_i,
     input logic [XLEN-1:0]     vaddr_i,
-    input logic [XLEN-1:0]     pte_i,
-    input logic                pte_valid_i,
-    input logic                ptw_flush_i,
+    input logic                walk_page_fault_i,
+    input logic                fill_valid_i,
+    input tlb_entry_t          fill_entry_i,
     output logic [XLEN-1:0]    paddr_o,
     output logic               paddr_ready_o,
     output logic               ptw_stall_o,
-    output logic [XLEN-1:0]    ptw_mem_addr_o,
-    output logic               ptw_mem_read_o,
+    output logic               miss_o,
     output logic               page_fault_o
 );
     // Translation lookaside buffer which support Sv39.
@@ -34,21 +33,11 @@ module translation_lookaside_buffer (
     // control signals
     logic tlb_hit;
     logic [$clog2(TLB_SIZE)-1:0] tlb_hit_idx;
-
-    // ptw control signals/storage
-    logic [2:0] current_level;
-    tlb_entry_t current_pte, pte;
-    logic reached_leaf, found;
-    logic lookup_page_fault, walk_page_fault;
-    logic global_parent, ptw_response_valid;
-    logic [XLEN-1:0] traversal_addr;
-    // A walk must keep using the translation context that caused its miss,
-    // even if the next request arrives while this walk is stalled.
-    logic [XLEN-1:0] walk_vaddr_q, walk_satp_q;
-    logic sfence_vaddr_canonical, sfence_walk_matches;
+    logic found;
+    logic lookup_page_fault;
+    tlb_entry_t pte;
+    logic sfence_vaddr_canonical;
     logic [TLB_SIZE-1:0] sfence_entry_matches;
-
-    assign ptw_response_valid = ptw_mem_read_o && pte_valid_i;
 
     // SFENCE.VMA is selective by virtual address (rs1) and ASID (rs2).
     // x0 is a selector meaning "all", rather than a register value of zero.
@@ -71,16 +60,6 @@ module translation_lookaside_buffer (
                         && tlb_entries[i].asid
                            == rs2_data_i[SATP_ASID_MSB : SATP_ASID_LSB]));
         end
-
-        // An in-flight walk can still resolve to a superpage that covers rs1.
-        // Cancel walks for the selected ASID rather than risk a stale refill;
-        // this is more conservative than entry invalidation, but safe.  An
-        // invalid rs1 VA makes SFENCE.VMA a no-op, including for a walk.
-        sfence_walk_matches = commit_i && ctrl_i.tlb_invalidate && ptw_mem_read_o
-            && (ctrl_i.rs1_addr == '0 || sfence_vaddr_canonical)
-            && (ctrl_i.rs2_addr == '0
-                || walk_satp_q[SATP_ASID_MSB : SATP_ASID_LSB]
-                   == rs2_data_i[SATP_ASID_MSB : SATP_ASID_LSB]);
     end
 
     // mstatus
@@ -88,9 +67,9 @@ module translation_lookaside_buffer (
     assign mstatus_sum = mstatus_i[MSTATUS_SUM];
     assign mstatus_mxr = mstatus_i[MSTATUS_MXR];
 
-    // The lookup path deliberately has no dependency on pte_i.  It produces
-    // the request-side translation result, while the separate PTW block below
-    // consumes a PTE response.  This keeps a read response from feeding back
+    // The lookup path deliberately has no dependency on PTE responses.  It
+    // produces the request-side translation result; the shared PTW consumes a
+    // PTE response separately.  This keeps a read response from feeding back
     // combinationally into its own request address.
     always_comb begin
         pte = '0;
@@ -100,7 +79,7 @@ module translation_lookaside_buffer (
         paddr_o = '0;
         paddr_ready_o = '0;
         ptw_stall_o = '0;
-        ptw_mem_addr_o = traversal_addr;
+        miss_o = '0;
         if (lookup_en_i) begin
             ptw_stall_o = '1;
             // All of vaddr[63:39] must equal vaddr[38]
@@ -194,57 +173,13 @@ module translation_lookaside_buffer (
         if (lookup_page_fault) begin
             paddr_ready_o = '0;
         end
-    end
 
-    always_comb begin
-        // PTE-response decoding is kept separate from lookup/address
-        // generation.  Only this block depends on pte_i.
-        reached_leaf = '0;
-        walk_page_fault = '0;
-        current_pte.vpn = walk_vaddr_q[38:12];
-        current_pte.asid = walk_satp_q[SATP_ASID_MSB : SATP_ASID_LSB];
-        current_pte.leaf_level = current_level;
-
-        current_pte.ppn = pte_i[53:10];
-        current_pte.accessed = pte_i[PTE_A];
-        current_pte.dirty = pte_i[PTE_D];
-        current_pte.global_mapping = pte_i[PTE_G] | global_parent;
-        current_pte.user = pte_i[PTE_U];
-        current_pte.execute = pte_i[PTE_X];
-        current_pte.write = pte_i[PTE_W];
-        current_pte.read = pte_i[PTE_R];
-        current_pte.valid = pte_i[PTE_V];
-
-        // There are certain conditions where we must raise a page fault
-        // because of an invalid or reserved PTE encoding.
-        if (ptw_stall_o && ptw_response_valid) begin
-            if (!current_pte.valid
-                || (!current_pte.execute && current_pte.write && !current_pte.read)
-                || (current_pte.execute && current_pte.write && !current_pte.read)
-                || (pte_i[PTE_RESERVED_MSB : PTE_RESERVED_LSB] != 0)) begin
-                walk_page_fault = '1;
-            end
-
-            // rwx != 000 => leaf node.
-            if (current_pte.read || current_pte.write || current_pte.execute) begin
-                reached_leaf = '1;
-
-                // A superpage PPN must have zeroed lower-level PPN fields.
-                for (logic [2:0] i = 0; i < current_level; i++) begin
-                    if (ppn_index(i, current_pte.ppn) != '0) begin
-                        walk_page_fault = '1;
-                    end
-                end
-            end else if (current_level == '0) begin
-                walk_page_fault = '1;
-            end else if (current_pte.dirty || current_pte.accessed || current_pte.user) begin
-                // Non-leaf D, A, and U bits are reserved in Sv39.
-                walk_page_fault = '1;
-            end
+        if (lookup_en_i && !tlb_hit && !lookup_page_fault) begin
+            miss_o = '1;
         end
     end
 
-    assign page_fault_o = lookup_page_fault | walk_page_fault;
+    assign page_fault_o = lookup_page_fault | walk_page_fault_i;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -252,47 +187,15 @@ module translation_lookaside_buffer (
             for (int i = 0; i < TLB_SIZE; i++) begin
                 tlb_entries[i].valid <= '0;
             end
-            current_level <= PTE_LEVELS - 1;
-            traversal_addr <= '0;
-            ptw_mem_read_o <= '0;
-            global_parent <= '0;
-            walk_vaddr_q <= '0;
-            walk_satp_q <= '0;
-        end
-
-        // At the start of a PTW we need to do a few things.
-        // We know a PTW has just started if we have a stall and ptw_mem_read_o is not yet
-        // set.access_fault_o.
-        if (ptw_stall_o && !ptw_mem_read_o && !page_fault_o && !ptw_flush_i) begin
-            ptw_mem_read_o <= '1;
-            walk_vaddr_q <= vaddr_i;
-            walk_satp_q <= satp_i;
-            traversal_addr <= satp_i[SATP_PPN_MSB : SATP_PPN_LSB] * PAGESIZE + vpn_index(current_level, vaddr_i[38:12]) * PTESIZE;
-        end
-
-        // Continue an existing PTW by going to the next node in the tree if the PTE has been
-        // correctly received from memory.
-        if (ptw_stall_o && !reached_leaf && ptw_response_valid && !page_fault_o && !ptw_flush_i) begin
-            ptw_mem_read_o <= '1;
-            current_level <= current_level - 1;
-            traversal_addr <= current_pte.ppn * PAGESIZE + vpn_index(current_level - 1, walk_vaddr_q[38:12]) * PTESIZE;
-            if (current_pte.global_mapping) begin
-                global_parent <= '1;
-            end
-        end
-
-        // On writeback, reset variables
-        if (ptw_stall_o && reached_leaf) begin
-            current_level <= PTE_LEVELS - 1;
-            ptw_mem_read_o <= '0;
-            global_parent <= '0;
-            if (!page_fault_o && !ptw_flush_i) begin
+        end else begin
+            // On writeback, reset variables
+            if (fill_valid_i) begin
                 // Look for a free TLB entry
                 // TODO: make this part better. Overall need a better allocation algorithm
                 found = '0;
                 for (int i = 0; i < TLB_SIZE; i++) begin
                     if (!tlb_entries[i].valid && !found) begin
-                        tlb_entries[i] <= current_pte;
+                        tlb_entries[i] <= fill_entry_i;
                         found = '1;
                     end
                 end
@@ -301,88 +204,17 @@ module translation_lookaside_buffer (
                 // locality. If you're switching between two pages, their TLB entries will
                 // constantly overwrite each other.
                 if (!found) begin
-                    tlb_entries[0] <= current_pte;
+                    tlb_entries[0] <= fill_entry_i;
                 end
             end
-        end
 
-        // On fault, we need to revert some state
-        if (page_fault_o || ptw_flush_i || sfence_walk_matches) begin
-            ptw_mem_read_o <= '0;
-            current_level <= PTE_LEVELS - 1;
-            global_parent <= '0;
-        end
-
-        // Keep this after writeback, so a fence also wins if a PTE response
-        // and SFENCE.VMA occur in the same cycle.
-        for (int i = 0; i < TLB_SIZE; i++) begin
-            if (sfence_entry_matches[i]) begin
-                tlb_entries[i].valid <= '0;
+            // Keep this after writeback, so a fence also wins if a PTE response
+            // and SFENCE.VMA occur in the same cycle.
+            for (int i = 0; i < TLB_SIZE; i++) begin
+                if (sfence_entry_matches[i]) begin
+                    tlb_entries[i].valid <= '0;
+                end
             end
         end
     end
 endmodule : translation_lookaside_buffer
-
-function automatic [26:0] vpn_mask(
-    input logic [2:0] leaf_level,
-    input [26:0] vpn
-);
-    if (leaf_level == 0) begin
-        return vpn;
-    end else if (leaf_level == 1) begin
-        return {vpn[26:9], 9'b0};
-    end else if (leaf_level == 2) begin
-        return {vpn[26:18], 18'b0};
-    end
-    // fallback
-    return vpn;
-endfunction
-
-function automatic [8:0] vpn_index(
-    input logic [2:0] level,
-    input [26:0] vpn
-);
-    if (level == 0) begin
-        return vpn[8:0];
-    end else if (level == 1) begin
-        return vpn[17:9];
-    end else if (level == 2) begin
-        return vpn[26:18];
-    end
-    // fallback
-    return vpn[8:0];
-endfunction
-
-function automatic [43:0] ppn_index(
-    input logic [2:0] level,
-    input [43:0] ppn
-);
-    if (level == 0) begin
-        return 44'(ppn[8:0]);
-    end else if (level == 1) begin
-        return 44'(ppn[17:9]);
-    end else if (level == 2) begin
-        return 44'(ppn[43:18]);
-    end
-    // fallback
-    return 44'(ppn[8:0]);
-endfunction
-
-function automatic logic [XLEN-1:0] ppn_to_addr(
-    input logic [2:0] leaf_level,
-    input logic [XLEN-1:0] vaddr,
-    input logic [43:0] ppn
-);
-    if (leaf_level == 0) begin
-        // 56 bit physical address, zero extended to XLEN (64)
-        return {8'b0, ppn, vaddr[11:0]};
-    end else if (leaf_level == 1) begin
-        // This is a megapage - the first VPN field is part of the offset
-        return {8'b0, ppn[43:9], vaddr[20:0]};
-    end else if (leaf_level == 2) begin
-        // This is a gigapage - the first two VPN fields are part of the offset
-        return {8'b0, ppn[43:18], vaddr[29:0]};
-    end
-    // fallback, should not be accessed
-    return {8'b0, ppn, vaddr[11:0]};
-endfunction

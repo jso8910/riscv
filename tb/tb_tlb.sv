@@ -2,9 +2,9 @@
 
 import riscv::*;
 
-// A small Sv39 PTW environment.  pte_i is a combinational read port into a
-// deliberately ordinary page-table memory; the TLB supplies the physical PTE
-// address and ptw_mem_read_o is the response-valid qualifier.
+// A small shared Sv39 PTW environment.  pte_i is a combinational read port
+// into a deliberately ordinary page-table memory; the walker supplies the
+// physical PTE address and ptw_mem_read_o is the response-valid qualifier.
 module tb_tlb;
     localparam logic [43:0] ROOT_PPN = 44'h001;
     localparam logic [43:0] L1_PPN   = 44'h002;
@@ -33,6 +33,14 @@ module tb_tlb;
     logic [XLEN-1:0] ptw_mem_addr;
     logic ptw_mem_read;
     logic page_fault;
+    logic tlb_miss;
+    logic [MEM_READ_PORTS-1:0] walker_miss, walker_pte_valid,
+                               walker_ptw_mem_read, walker_page_fault,
+                               walker_fill_valid;
+    logic [MEM_READ_PORTS-1:0][XLEN-1:0] walker_ptw_mem_addr;
+    logic [XLEN-1:0] walker_vaddr [MEM_READ_PORTS-1:0];
+    logic [XLEN-1:0] walker_pte [MEM_READ_PORTS-1:0];
+    tlb_entry_t walker_fill_entry [MEM_READ_PORTS-1:0];
 
     logic [XLEN-1:0] pte_memory [0:2047];
     int tests_run;
@@ -43,11 +51,36 @@ module tb_tlb;
         .rs1_data_i(rs1_data), .rs2_data_i(rs2_data), .op_i(op),
         .current_privilege_i(privilege), .lookup_en_i(lookup_en),
         .mstatus_i(mstatus), .satp_i(satp), .vaddr_i(vaddr),
-        .pte_i(pte_i), .pte_valid_i(pte_valid_i), .ptw_flush_i(ptw_flush),
+        .walk_page_fault_i(walker_page_fault[0]),
+        .fill_valid_i(walker_fill_valid[0]),
+        .fill_entry_i(walker_fill_entry[0]),
         .paddr_o(paddr), .paddr_ready_o(paddr_ready),
-        .ptw_stall_o(ptw_stall), .ptw_mem_addr_o(ptw_mem_addr),
-        .ptw_mem_read_o(ptw_mem_read), .page_fault_o(page_fault)
+        .ptw_stall_o(ptw_stall), .miss_o(tlb_miss),
+        .page_fault_o(page_fault)
     );
+
+    page_table_walker walker (
+        .clk(clk), .rst_n(rst_n), .miss_i(walker_miss),
+        .vaddr_i(walker_vaddr), .pte_i(walker_pte),
+        .pte_valid_i(walker_pte_valid), .satp_i(satp),
+        .commit_i(commit), .ctrl_i(ctrl), .rs1_data_i(rs1_data),
+        .rs2_data_i(rs2_data), .ptw_flush_i(ptw_flush),
+        .ptw_mem_addr_o(walker_ptw_mem_addr),
+        .ptw_mem_read_o(walker_ptw_mem_read),
+        .walk_page_fault_o(walker_page_fault),
+        .fill_valid_o(walker_fill_valid), .fill_entry_o(walker_fill_entry)
+    );
+
+    assign walker_miss[0] = tlb_miss;
+    assign walker_miss[1] = 1'b0;
+    assign walker_vaddr[0] = vaddr;
+    assign walker_vaddr[1] = '0;
+    assign walker_pte[0] = pte_i;
+    assign walker_pte[1] = '0;
+    assign walker_pte_valid[0] = pte_valid_i;
+    assign walker_pte_valid[1] = 1'b0;
+    assign ptw_mem_addr = walker_ptw_mem_addr[0];
+    assign ptw_mem_read = walker_ptw_mem_read[0];
 
     always #5 clk = ~clk;
 

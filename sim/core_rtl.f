@@ -11,6 +11,7 @@ rtl/memory_controller.sv
 rtl/trap_controller.sv
 rtl/physical_memory_checker.sv
 rtl/tlb.sv
+rtl/page_table_walker.sv
 rtl/memory_management_unit.sv
 rtl/timer_interrupt.sv
 rtl/core.sv
