@@ -108,10 +108,32 @@ elaborate $TOP
 check_design -unresolved
 write_db -to_file $elaborated_db
 
+# Genus 18.14 Common UI has no get_timing_paths command.  Extract the setup
+# slack from its one-path timing report instead.  Leave the report behind on a
+# parse failure so it can be inspected directly.
+proc reported_setup_wns {timing_report} {
+    set fh [open $timing_report r]
+    set found 0
+    set wns 0.0
+    while {[gets $fh line] >= 0} {
+        # Covers the report forms "Slack -0.123", "Slack Time: -0.123",
+        # and "Slack (VIOLATED) -0.123" used by supported Genus releases.
+        if {[regexp -nocase {slack[^0-9+\-]*([-+]?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?)} $line -> value]} {
+            set wns $value
+            set found 1
+        }
+    }
+    close $fh
+    if {!$found} {
+        error "Could not find setup slack in $timing_report. Inspect that report and update reported_setup_wns if this Genus version uses a different format."
+    }
+    return $wns
+}
+
 # Return the worst setup slack after mapping and optimization at a candidate
-# period.  get_timing_paths is ordered worst-first, so its first path is WNS.
+# period.
 proc run_setup_trial {period_ns rtl_sources top constraints_file search_fh} {
-    global CLOCK_PERIOD_NS elaborated_db
+    global CLOCK_PERIOD_NS elaborated_db results_root
 
     reset_design
     read_db $elaborated_db
@@ -123,12 +145,10 @@ proc run_setup_trial {period_ns rtl_sources top constraints_file search_fh} {
     syn_map
     syn_opt
 
-    set worst_path [get_timing_paths -late -max_paths 1]
-    set wns_values [get_db $worst_path .slack]
-    if {[llength $wns_values] == 0} {
-        error "No setup timing paths were found at ${period_ns} ns. Check synth/constraints.sdc."
-    }
-    set wns [lindex $wns_values 0]
+    set trial_timing_report [file join $results_root trial_timing.rpt]
+    report_timing -max_paths 1 > $trial_timing_report
+    set wns [reported_setup_wns $trial_timing_report]
+    file delete -force $trial_timing_report
     set closed [expr {$wns >= 0.0}]
     puts $search_fh [format "%.6f %.6f %s" $period_ns $wns $closed]
     flush $search_fh

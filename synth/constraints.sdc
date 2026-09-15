@@ -3,7 +3,7 @@
 # local genus_config.tcl.  The interface has no declared asynchronous clocks.
 
 if {![info exists CLOCK_PERIOD_NS]} {
-    set CLOCK_PERIOD_NS 1.000
+    set CLOCK_PERIOD_NS 5.000
 }
 
 set core_clock [get_ports clk]
