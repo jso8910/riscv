@@ -8,7 +8,7 @@ IVERILOG_FLAGS := -g2012
 IVERILOG_WARN_FILTER := sed '/sorry: constant selects in always_[*] processes are not fully supported/d'
 
 BUILD_DIR := build
-TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test
+TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test
 TEST_TARGET_COUNT := $(words $(TEST_TARGETS))
 
 # These paths are evaluated from within $(ARCH_TEST_DIR).
@@ -23,7 +23,7 @@ ARCH_TEST_EXTENSIONS ?= I,Sm,Zicsr,Zicntr,Zihpm,U,S,Sstc,Sv39,Svade,Svbare
 ARCH_TEST_FAST ?= True
 ARCH_TEST_TIMEOUT ?= 60
 
-.PHONY: all core test test-all test-arch test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs bench-coremark bench-coremark-run bench-embench bench-embench-run clean
+.PHONY: all core test test-all test-arch test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs bench-coremark bench-coremark-run bench-embench bench-embench-run clean
 
 all: core
 
@@ -74,6 +74,12 @@ test-next-pc: $(BUILD_DIR)
 
 test-immediate-gen: $(BUILD_DIR)
 	$(call RUN_TEST,tb_immediate_gen,sim/tb_immediate_gen.f)
+
+test-booth-encoder-radix4: $(BUILD_DIR)
+	$(call RUN_TEST,tb_booth_encoder_radix4,sim/tb_booth_encoder_radix4.f)
+
+test-booth-partial-products: $(BUILD_DIR)
+	$(call RUN_TEST,tb_booth_partial_products,sim/tb_booth_partial_products.f)
 
 test-sram: $(BUILD_DIR)
 	$(call RUN_TEST,tb_sram,sim/tb_sram.f)

@@ -599,6 +599,14 @@ package riscv;
         WB_CLEAR_BITS           // Clears bits in the CSR which are high in rs1
     } csr_wb_sel_t;
 
+    typedef enum logic [2:0] {
+        NO_MUL,
+        MUL,                    // lower 64 bits (or lower 32 bits if alu_word_op)
+        MULH,                   // upper 64 bits: signed * signed
+        MULHU,                  // upper 64 bits: unsigned * unsigned
+        MULHSU                  // upper 64 bits: signed * unsigned
+    } mul_op_t;
+
     typedef struct packed {
         inst_fmt_t             inst_fmt;
 
@@ -611,6 +619,8 @@ package riscv;
         alu_op_t               alu_op;
         logic                  alu_sel_imm;
         logic                  alu_word_op;
+
+        mul_op_t               mul_op;
 
         logic                  branch;
         branch_cond_t          branch_cond;
