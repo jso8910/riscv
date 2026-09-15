@@ -197,8 +197,10 @@ module physical_memory_checker (
                     // =========
                     case (mem_req_i[i].op)
                         MFETCH : begin
-                            for (int j = int'(access_width[i] - 1); j >= 0; j--) begin
-                                if (!pma_readable(mem_req_i[i].address + uintxlen_t'(j)) || !pma_main(mem_req_i[i].address + uintxlen_t'(j))) begin
+                            for (int j = 0; j < 8; j++) begin
+                                if (j < int'(access_width[i]) &&
+                                    (!pma_readable(mem_req_i[i].address + uintxlen_t'(j)) ||
+                                     !pma_main(mem_req_i[i].address + uintxlen_t'(j)))) begin
                                     // The fault should correspond with the *original* operation
                                     // (differs in the case of a translation lookaside buffer miss/page
                                     // table walk)
@@ -207,15 +209,15 @@ module physical_memory_checker (
                             end
                         end
                         MREAD : begin
-                            for (int j = int'(access_width[i] - 1); j >= 0; j--) begin
-                                if (!pma_readable(access_addresses[i][j])) begin
+                            for (int j = 0; j < 8; j++) begin
+                                if (j < int'(access_width[i]) && !pma_readable(access_addresses[i][j])) begin
                                     fault_o[i] = pma_fault(mem_req_i[i].op_original);
                                 end
                             end
                         end
                         MWRITE : begin
-                            for (int j = int'(access_width[i] - 1); j >= 0; j--) begin
-                                if (!pma_writable(access_addresses[i][j])) begin
+                            for (int j = 0; j < 8; j++) begin
+                                if (j < int'(access_width[i]) && !pma_writable(access_addresses[i][j])) begin
                                     fault_o[i] = pma_fault(mem_req_i[i].op_original);
                                 end
                             end
@@ -314,10 +316,12 @@ module physical_memory_checker (
                     //     lowest PMP which matches *any* of the bytes of the access)
                     //  3. The R/W bit corresponding with this access's operation is not set.
                     pmp_all_bytes[i] = 1;
-                    for (int j = 0; j < int'(access_width[i]); j++) begin
+                    for (int j = 0; j < 8; j++) begin
                         // this works even if no pmp matched because the default (0..0) has no address matches
                         // even in any edge case
-                        if (!(pmp_range_btm[i] <= {1'b0, access_addresses[i][j][PHYS_ADDR_WIDTH-1:0]} && {1'b0, access_addresses[i][j][PHYS_ADDR_WIDTH-1:0]} < pmp_range_top[i])) begin
+                        if (j < int'(access_width[i]) &&
+                            !(pmp_range_btm[i] <= {1'b0, access_addresses[i][j][PHYS_ADDR_WIDTH-1:0]} &&
+                              {1'b0, access_addresses[i][j][PHYS_ADDR_WIDTH-1:0]} < pmp_range_top[i])) begin
                             pmp_all_bytes[i] = 0;
                         end
                     end
