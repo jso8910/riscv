@@ -1,0 +1,17 @@
+# Copy this file to synth/genus_config.tcl and replace the library paths for
+# your PDK.  The real file is ignored by git.
+
+set LIB_FILES [list \
+    /path/to/your_pdk/lib/standard_cells_ss.lib \
+]
+
+# Optional overrides:
+# set TOP riscv_core
+# set CLOCK_PERIOD_NS 1.000
+# set CONSTRAINTS_FILE /absolute/path/to/integration_constraints.sdc
+
+# Max-frequency-search overrides (synth/genus_max_freq.tcl only):
+# set SEARCH_MIN_PERIOD_NS 0.100
+# set SEARCH_MAX_PERIOD_NS 10.000
+# set SEARCH_RESOLUTION_NS 0.005
+# set MAX_TIMING_PATHS 100

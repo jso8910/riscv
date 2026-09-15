@@ -3,3 +3,6 @@ __pycache__
 gmon.out
 /obj_dir
 /.vscode
+
+# Local Cadence/PDK setup; use synth/genus_config.tcl.example as the template.
+/synth/genus_config.tcl
