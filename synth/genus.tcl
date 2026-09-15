@@ -10,6 +10,13 @@
 # PDK-specific paths remain local.
 
 set script_dir [file dirname [file normalize [info script]]]
+# Older Genus releases invoked with "-files synth/genus.tcl" can report
+# [info script] as only "genus.tcl".  Then script_dir is the project root,
+# so recover synth/ before resolving local configuration and constraints.
+if {![file isfile [file join $script_dir constraints.sdc]] &&
+    [file isfile [file join $script_dir synth constraints.sdc]]} {
+    set script_dir [file join $script_dir synth]
+}
 set root_dir   [file dirname $script_dir]
 
 set TOP               riscv_core

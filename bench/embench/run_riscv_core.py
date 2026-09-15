@@ -14,7 +14,7 @@ from embench_core import log
 def get_target_args(remnant):
     parser = argparse.ArgumentParser(description="RISC-V core simulator settings")
     parser.add_argument("--simulator", choices=("verilator", "iverilog"), default="verilator")
-    parser.add_argument("--max-cycles", type=int, default=20_000_000)
+    parser.add_argument("--max-cycles", type=int, default=500_000_000)
     return parser.parse_args(remnant)
 
 
@@ -31,7 +31,10 @@ def run_benchmark(bench, path, args):
         path,
     ]
     try:
-        result = subprocess.run(command, text=True, capture_output=True, timeout=120)
+        # RV64I builds use compiler helper loops for multiplication and division.
+        # The slowest GSF=1 Embench workloads can legitimately take several
+        # host minutes under cycle-accurate simulation.
+        result = subprocess.run(command, text=True, capture_output=True, timeout=1_200)
     except subprocess.TimeoutExpired:
         log.warning("Warning: %s timed out", bench)
         return None

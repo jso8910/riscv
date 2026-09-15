@@ -7,10 +7,23 @@ uint64_t __muldi3(uint64_t left, uint64_t right)
 {
     uint64_t product = 0;
     while (right != 0) {
-        if (right & 1)
+        /* Consume two multiplier bits per iteration.  All arithmetic is
+         * unsigned, so the required modulo-2^64 product is preserved. */
+        switch (right & 3) {
+        case 1:
             product += left;
-        left <<= 1;
-        right >>= 1;
+            break;
+        case 2:
+            product += left << 1;
+            break;
+        case 3:
+            product += left + (left << 1);
+            break;
+        default:
+            break;
+        }
+        left <<= 2;
+        right >>= 2;
     }
     return product;
 }

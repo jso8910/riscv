@@ -11,6 +11,12 @@
 #   genus -files synth/genus_max_freq.tcl |& tee build/genus/max_freq.log
 
 set script_dir [file dirname [file normalize [info script]]]
+# Older Genus "-files" invocations can lose the synth/ component from
+# [info script]; recover it before looking up the local configuration.
+if {![file isfile [file join $script_dir constraints.sdc]] &&
+    [file isfile [file join $script_dir synth constraints.sdc]]} {
+    set script_dir [file join $script_dir synth]
+}
 set root_dir   [file dirname $script_dir]
 
 set TOP                    riscv_core
