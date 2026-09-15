@@ -97,7 +97,7 @@ check_design -unresolved
 # CLOCK_PERIOD_NS is visible while the SDC is read, so a local configuration
 # can override the default 1 GHz target without editing the shared constraint.
 read_sdc $CONSTRAINTS_FILE
-check_timing -unconstrained
+check_timing_intent
 
 syn_generic
 syn_map

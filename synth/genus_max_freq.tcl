@@ -106,7 +106,7 @@ proc run_setup_trial {period_ns rtl_sources top constraints_file search_fh} {
 
     set CLOCK_PERIOD_NS $period_ns
     read_sdc $constraints_file
-    check_timing -unconstrained
+    check_timing_intent
     syn_generic
     syn_map
     syn_opt
@@ -173,7 +173,7 @@ report_qor                                      > [file join $out_dir qor.rpt]
 report_timing -late -max_paths $MAX_TIMING_PATHS > [file join $out_dir timing_setup_longest_paths.rpt]
 report_timing -early -max_paths $MAX_TIMING_PATHS > [file join $out_dir timing_hold_longest_paths.rpt]
 report_timing -lint                             > [file join $out_dir timing_lint.rpt]
-check_timing -unconstrained                     > [file join $out_dir unconstrained_paths.rpt]
+check_timing_intent                             > [file join $out_dir timing_intent.rpt]
 report_area                                     > [file join $out_dir area.rpt]
 report_power                                    > [file join $out_dir power.rpt]
 report_gates                                    > [file join $out_dir gates.rpt]
@@ -191,6 +191,7 @@ puts $summary_fh [format "Search resolution: %.6f ns" $SEARCH_RESOLUTION_NS]
 puts $summary_fh "Trial log: $search_report"
 puts $summary_fh "Longest setup paths: timing_setup_longest_paths.rpt"
 puts $summary_fh "Longest hold paths: timing_hold_longest_paths.rpt"
+puts $summary_fh "Timing intent checks: timing_intent.rpt"
 close $summary_fh
 
 puts [format "INFO: maximum closing frequency: %.3f MHz (%.6f ns)" $best_freq_mhz $best_period_ns]
