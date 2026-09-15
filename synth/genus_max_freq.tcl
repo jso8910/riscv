@@ -99,20 +99,22 @@ set_db library         $LIB_FILES
 set_db hdl_search_path [list [file join $root_dir rtl]]
 set_db information_level 5
 
+# Elaborate exactly once. A frequency trial must start from clean RTL, but
+# rereading this core's large PMP/PMA logic is needlessly expensive. Save the
+# pre-SDC design database and restore it for every timing candidate instead.
+set elaborated_db [file join $results_root elaborated_${run_tag}.db]
+read_hdl -sv $rtl_sources
+elaborate $TOP
+check_design -unresolved
+write_db -to_file $elaborated_db
+
 # Return the worst setup slack after mapping and optimization at a candidate
 # period.  get_timing_paths is ordered worst-first, so its first path is WNS.
-set trial_design_loaded 0
 proc run_setup_trial {period_ns rtl_sources top constraints_file search_fh} {
-    global CLOCK_PERIOD_NS trial_design_loaded
+    global CLOCK_PERIOD_NS elaborated_db
 
-    # This Common UI release rejects reset_design before the first elaborate.
-    # Later trials reset the prior implementation before rereading the RTL.
-    if {$trial_design_loaded} {
-        reset_design
-    }
-    read_hdl -sv $rtl_sources
-    elaborate $top
-    check_design -unresolved
+    reset_design
+    read_db $elaborated_db
 
     set CLOCK_PERIOD_NS $period_ns
     read_sdc $constraints_file
@@ -131,7 +133,6 @@ proc run_setup_trial {period_ns rtl_sources top constraints_file search_fh} {
     puts $search_fh [format "%.6f %.6f %s" $period_ns $wns $closed]
     flush $search_fh
     puts [format "INFO: trial period %.6f ns: WNS %.6f ns (%s)" $period_ns $wns [expr {$closed ? "closed" : "failed"}]]
-    set trial_design_loaded 1
     return $wns
 }
 
@@ -192,6 +193,7 @@ report_messages -severity error                 > [file join $out_dir errors.rpt
 write_hdl                                       > [file join $out_dir ${TOP}_mapped.v]
 write_sdc                                       > [file join $out_dir ${TOP}_mapped.sdc]
 write_design -innovus -base_name [file join $out_dir $TOP]
+file delete -force $elaborated_db
 
 set summary_fh [open [file join $out_dir max_frequency_summary.rpt] w]
 puts $summary_fh "Top: $TOP"
