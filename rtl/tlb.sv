@@ -4,9 +4,9 @@ module translation_lookaside_buffer (
     input logic                clk,
     input logic                rst_n,
     input logic                commit_i,
-    input ctrl_t               ctrl_i,
-    input logic [XLEN-1:0]     rs1_data_i,
-    input logic [XLEN-1:0]     rs2_data_i,
+    // This EX-derived selector is pipelined to WB.  It is acted on only when
+    // commit_i is asserted.
+    input sfence_sel_t         sfence_sel_i,
     input mem_op_t             op_i,
     input machine_privilege_t  current_privilege_i,
     input logic                lookup_en_i,
@@ -36,29 +36,21 @@ module translation_lookaside_buffer (
     logic found;
     logic lookup_page_fault;
     tlb_entry_t pte;
-    logic sfence_vaddr_canonical;
     logic [TLB_SIZE-1:0] sfence_entry_matches;
 
-    // SFENCE.VMA is selective by virtual address (rs1) and ASID (rs2).
-    // x0 is a selector meaning "all", rather than a register value of zero.
+    // SFENCE.VMA is selective by virtual address and ASID.  The selector is
+    // reduced in EX so no full source operands must reach writeback.
     always_comb begin
-        sfence_vaddr_canonical = '1;
-        for (int i = 39; i < 64; i++) begin
-            if (rs1_data_i[i] != rs1_data_i[38]) begin
-                sfence_vaddr_canonical = '0;
-            end
-        end
-
         for (int i = 0; i < TLB_SIZE; i++) begin
-            sfence_entry_matches[i] = commit_i && ctrl_i.tlb_invalidate
-                && (ctrl_i.rs1_addr == '0
-                    || (sfence_vaddr_canonical
-                        && vpn_mask(tlb_entries[i].leaf_level, tlb_entries[i].vpn)
-                           == vpn_mask(tlb_entries[i].leaf_level, rs1_data_i[38:12])))
-                && (ctrl_i.rs2_addr == '0
+            sfence_entry_matches[i] = commit_i && sfence_sel_i.valid
+                && sfence_sel_i.vaddr_canonical
+                && (sfence_sel_i.vaddr_all
+                    || (vpn_mask(tlb_entries[i].leaf_level, tlb_entries[i].vpn)
+                        == vpn_mask(tlb_entries[i].leaf_level, sfence_sel_i.vpn)))
+                && (sfence_sel_i.asid_all
                     || (!tlb_entries[i].global_mapping
                         && tlb_entries[i].asid
-                           == rs2_data_i[SATP_ASID_MSB : SATP_ASID_LSB]));
+                           == sfence_sel_i.asid));
         end
     end
 

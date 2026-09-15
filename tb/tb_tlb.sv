@@ -18,6 +18,7 @@ module tb_tlb;
     logic commit;
     ctrl_t ctrl;
     logic [XLEN-1:0] rs1_data, rs2_data;
+    sfence_sel_t sfence_sel;
     mem_op_t op;
     machine_privilege_t privilege;
     logic lookup_en;
@@ -46,9 +47,14 @@ module tb_tlb;
     int tests_run;
     int tests_failed;
 
+    sfence_selector sfence_selector (
+        .ctrl_i(ctrl), .rs1_data_i(rs1_data), .rs2_data_i(rs2_data),
+        .sfence_sel_o(sfence_sel)
+    );
+
     translation_lookaside_buffer dut (
-        .clk(clk), .rst_n(rst_n), .commit_i(commit), .ctrl_i(ctrl),
-        .rs1_data_i(rs1_data), .rs2_data_i(rs2_data), .op_i(op),
+        .clk(clk), .rst_n(rst_n), .commit_i(commit),
+        .sfence_sel_i(sfence_sel), .op_i(op),
         .current_privilege_i(privilege), .lookup_en_i(lookup_en),
         .mstatus_i(mstatus), .satp_i(satp), .vaddr_i(vaddr),
         .walk_page_fault_i(walker_page_fault[0]),
@@ -62,9 +68,8 @@ module tb_tlb;
     page_table_walker walker (
         .clk(clk), .rst_n(rst_n), .miss_i(walker_miss),
         .vaddr_i(walker_vaddr), .pte_i(walker_pte),
-        .pte_valid_i(walker_pte_valid), .satp_i(satp),
-        .commit_i(commit), .ctrl_i(ctrl), .rs1_data_i(rs1_data),
-        .rs2_data_i(rs2_data), .ptw_flush_i(ptw_flush),
+        .pte_valid_i(walker_pte_valid), .satp_i(satp), .commit_i(commit),
+        .sfence_sel_i(sfence_sel), .ptw_flush_i(ptw_flush),
         .ptw_mem_addr_o(walker_ptw_mem_addr),
         .ptw_mem_read_o(walker_ptw_mem_read),
         .walk_page_fault_o(walker_page_fault),

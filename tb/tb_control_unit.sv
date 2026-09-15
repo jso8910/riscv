@@ -12,6 +12,7 @@ module tb_control_unit;
 
     control_unit dut (
         .inst_i(inst),
+        .inst_valid_i(1'b1),
         .current_privilege_i(current_privilege),
         .imm_o(imm),
         .ctrl_o(ctrl)

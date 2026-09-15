@@ -10,9 +10,7 @@ module page_table_walker (
     input logic [MEM_READ_PORTS-1:0] pte_valid_i,
     input logic [XLEN-1:0] satp_i,
     input logic commit_i,
-    input ctrl_t ctrl_i,
-    input logic [XLEN-1:0] rs1_data_i,
-    input logic [XLEN-1:0] rs2_data_i,
+    input sfence_sel_t sfence_sel_i,
     // PTW flush tells the TLBs to stop their active PTWs - asserted on fault/trap
     input logic ptw_flush_i,
     output logic [MEM_READ_PORTS-1:0][XLEN-1:0] ptw_mem_addr_o,
@@ -31,7 +29,7 @@ module page_table_walker (
     // A walk must keep using the translation context that caused its miss,
     // even if the next request arrives while this walk is stalled.
     logic [XLEN-1:0] walk_vaddr_q, walk_satp_q;
-    logic sfence_vaddr_canonical, sfence_walk_matches;
+    logic sfence_walk_matches;
     logic walk_active_q;
     logic [$clog2(MEM_READ_PORTS)-1:0] walk_port_q;
     logic [$clog2(MEM_READ_PORTS)-1:0] selected_port;
@@ -49,25 +47,17 @@ module page_table_walker (
         end
     end
 
-    // SFENCE.VMA is selective by virtual address (rs1) and ASID (rs2).
-    // x0 is a selector meaning "all", rather than a register value of zero.
+    // A selector built in EX accompanies SFENCE.VMA until writeback.
     always_comb begin
-        sfence_vaddr_canonical = '1;
-        for (int i = 39; i < 64; i++) begin
-            if (rs1_data_i[i] != rs1_data_i[38]) begin
-                sfence_vaddr_canonical = '0;
-            end
-        end
-
         // An in-flight walk can still resolve to a superpage that covers rs1.
         // Cancel walks for the selected ASID rather than risk a stale refill;
         // this is more conservative than entry invalidation, but safe.  An
         // invalid rs1 VA makes SFENCE.VMA a no-op, including for a walk.
-        sfence_walk_matches = commit_i && ctrl_i.tlb_invalidate && walk_active_q
-            && (ctrl_i.rs1_addr == '0 || sfence_vaddr_canonical)
-            && (ctrl_i.rs2_addr == '0
+        sfence_walk_matches = commit_i && sfence_sel_i.valid && walk_active_q
+            && sfence_sel_i.vaddr_canonical
+            && (sfence_sel_i.asid_all
                 || walk_satp_q[SATP_ASID_MSB : SATP_ASID_LSB]
-                   == rs2_data_i[SATP_ASID_MSB : SATP_ASID_LSB]);
+                   == sfence_sel_i.asid);
     end
 
     always_comb begin

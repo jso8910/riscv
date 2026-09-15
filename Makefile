@@ -8,7 +8,7 @@ IVERILOG_FLAGS := -g2012
 IVERILOG_WARN_FILTER := sed '/sorry: constant selects in always_[*] processes are not fully supported/d'
 
 BUILD_DIR := build
-TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test
+TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test
 TEST_TARGET_COUNT := $(words $(TEST_TARGETS))
 
 # These paths are evaluated from within $(ARCH_TEST_DIR).
@@ -23,7 +23,7 @@ ARCH_TEST_EXTENSIONS ?= I,Sm,Zicsr,Zicntr,Zihpm,U,S,Sstc,Sv39,Svade,Svbare
 ARCH_TEST_FAST ?= True
 ARCH_TEST_TIMEOUT ?= 60
 
-.PHONY: all core test test-all test-arch test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer clean
+.PHONY: all core test test-all test-arch test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs clean
 
 all: core
 
@@ -112,6 +112,18 @@ test-timer: $(BUILD_DIR)
 
 test-system-timer: $(BUILD_DIR)
 	$(call RUN_TEST,tb_riscv_system_timer,sim/tb_riscv_system_timer.f)
+
+test-csr-val-gen: $(BUILD_DIR)
+	$(call RUN_TEST,tb_csr_val_gen,sim/tb_csr_val_gen.f)
+
+test-forwarding-hazard: $(BUILD_DIR)
+	$(call RUN_TEST,tb_forwarding_hazard,sim/tb_forwarding_hazard.f)
+
+test-control-helpers: $(BUILD_DIR)
+	$(call RUN_TEST,tb_control_helpers,sim/tb_control_helpers.f)
+
+test-pipeline-regs: $(BUILD_DIR)
+	$(call RUN_TEST,tb_pipeline_regs,sim/tb_pipeline_regs.f)
 
 clean:
 	rm -rf $(BUILD_DIR)

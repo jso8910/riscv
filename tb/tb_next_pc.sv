@@ -9,10 +9,9 @@ module tb_next_pc;
     logic [XLEN-1:0]  rs2_data;
     logic [XLEN-1:0]  alu_res;
     logic [XLEN-1:0]  mepc;
-    logic [XLEN-1:0]  mtvec;
-    trap_t            trap;
+    logic [XLEN-1:0]  pred_pc;
     logic [XLEN-1:0]  next_pc_out;
-    logic             address_misaligned;
+    logic             redirect, address_misaligned;
 
     int tests_run;
     int tests_failed;
@@ -20,14 +19,13 @@ module tb_next_pc;
     next_pc_unit dut (
         .ctrl_i(ctrl),
         .pc_i(pc),
+        .pred_pc_i(pred_pc),
         .rs1_data_i(rs1_data),
         .rs2_data_i(rs2_data),
         .alu_res_i(alu_res),
         .sepc_i('0),
-        .stvec_i('0),
         .mepc_i(mepc),
-        .mtvec_i(mtvec),
-        .trap_i(trap),
+        .redirect_o(redirect),
         .address_misaligned_o(address_misaligned),
         .next_pc_o(next_pc_out)
     );
@@ -53,7 +51,6 @@ module tb_next_pc;
     );
         begin
             ctrl = '0;
-            trap = '0;
             ctrl.branch = branch_in && branch_funct3_valid(f3);
             ctrl.jal = jal_in;
             ctrl.jalr = jalr_in;
@@ -67,6 +64,7 @@ module tb_next_pc;
                 default : ctrl.branch_cond = COND_EQ;
             endcase
             pc = pc_in;
+            pred_pc = pc_in + PC_INC;
             rs1_data = rs1;
             rs2_data = rs2;
             alu_res = jal_in ? pc_in + immediate :
@@ -80,6 +78,10 @@ module tb_next_pc;
                 $fatal(1, "%s: expected 0x%016x, got 0x%016x",
                        name, expected, next_pc_out);
             end
+            if (redirect !== (expected != pred_pc)) begin
+                tests_failed++;
+                $fatal(1, "%s: redirect disagrees with predicted successor", name);
+            end
         end
     endtask
 
@@ -87,8 +89,6 @@ module tb_next_pc;
         tests_run = 0;
         tests_failed = 0;
         mepc = 32'h0000_3000;
-        mtvec = 32'h0000_4000;
-        trap = '0;
 
         check("sequential pc",
               1'b0, 1'b0, 1'b0, EQ, 32'd16, 32'h0000_1000,
@@ -157,8 +157,8 @@ module tb_next_pc;
               32'h0000_2001, 32'd0, 32'h0000_1014);
 
         ctrl = '0;
-        trap = '0;
         pc = 32'h0000_1000;
+        pred_pc = pc + PC_INC;
         rs1_data = '0;
         rs2_data = '0;
         alu_res = '0;

@@ -8,17 +8,22 @@ module tb_csrfile;
     ctrl_t ctrl;
     logic cycle_tick;
     logic retire_count;
-    logic [XLEN-1:0] rs1;
+    logic [XLEN-1:0] csr_data;
+    logic [11:0] csr_read_addr;
+    logic [11:0] csr_late_read_addr;
     trap_t trap;
+    logic trap_take;
     logic mtip;
     logic stip;
     logic [XLEN-1:0] time_i;
     logic [XLEN-1:0] csr_val;
+    logic [XLEN-1:0] csr_late_val;
     logic [XLEN-1:0] mepc;
     logic [XLEN-1:0] mtvec;
     logic [XLEN-1:0] mstatus;
     logic csr_illegal;
     machine_privilege_t privilege;
+    logic csr_flush;
     int tests_run;
     int tests_failed;
 
@@ -26,15 +31,19 @@ module tb_csrfile;
         .clk(clk),
         .rst_n(rst_n),
         .commit_i(1'b1),
+        .trap_take_i(trap_take),
         .ctrl_i(ctrl),
         .cycle_tick_i(cycle_tick),
         .retire_count_i(retire_count),
-        .rs1_i(rs1),
+        .csr_data_i(csr_data),
+        .csr_read_addr_i(csr_read_addr),
+        .csr_late_read_addr_i(csr_late_read_addr),
         .trap_i(trap),
         .mtip_i(mtip),
         .stip_i(stip),
         .time_i(time_i),
         .csr_val_o(csr_val),
+        .csr_late_val_o(csr_late_val),
         .mepc_o(mepc),
         .mtvec_o(mtvec),
         .sepc_o(),
@@ -51,7 +60,8 @@ module tb_csrfile;
         .mideleg_o(),
         .satp_o(),
         .csr_illegal_inst_o(csr_illegal),
-        .machine_privilege_o(privilege)
+        .machine_privilege_o(privilege),
+        .csr_flush_o(csr_flush)
     );
 
     always #5 clk = ~clk;
@@ -83,7 +93,7 @@ module tb_csrfile;
         begin
             clear_ctrl();
             ctrl.csr_addr = address;
-            rs1 = value;
+            csr_data = value;
             ctrl.csr_write = 1'b1;
             @(posedge clk);
             #1;
@@ -100,6 +110,7 @@ module tb_csrfile;
             clear_ctrl();
             ctrl.csr_addr = address;
             ctrl.csr_read = 1'b1;
+            csr_read_addr = address;
             #1;
             check(name, !csr_illegal && csr_val === expected);
             clear_ctrl();
@@ -111,9 +122,11 @@ module tb_csrfile;
             trap = '0;
             trap.is_trap = 1'b1;
             trap.dest_machine_privilege = destination;
+            trap_take = 1'b1;
             @(posedge clk);
             #1;
             trap = '0;
+            trap_take = 1'b0;
             check("trap changes privilege for policy test", privilege == destination);
         end
     endtask
@@ -121,8 +134,11 @@ module tb_csrfile;
     initial begin
         clk = 1'b0;
         rst_n = 1'b1;
-        rs1 = '0;
+        csr_data = '0;
+        csr_read_addr = '0;
+        csr_late_read_addr = '0;
         trap = '0;
+        trap_take = 1'b0;
         mtip = 1'b1;
         stip = 1'b0;
         time_i = '0;
@@ -246,6 +262,17 @@ module tb_csrfile;
         retire_count = 1'b0;
         read_csr("mcycle increments on cycle_tick", MCYCLE, 64'h0123_4567_89ab_cdf0);
         read_csr("minstret increments on retire", MINSTRET, 64'h0000_0000_0000_0001);
+        csr_late_read_addr = MCYCLE; #1;
+        check("late mcycle read samples the counter", csr_late_val == 64'h0123_4567_89ab_cdf0);
+        csr_late_read_addr = CYCLE; #1;
+        check("late cycle read aliases mcycle", csr_late_val == 64'h0123_4567_89ab_cdf0);
+        csr_late_read_addr = MINSTRET; #1;
+        check("late minstret read samples the counter", csr_late_val == 64'h0000_0000_0000_0001);
+        csr_late_read_addr = INSTRET; #1;
+        check("late instret read aliases minstret", csr_late_val == 64'h0000_0000_0000_0001);
+        time_i = 64'h0123_4567_89ab_cdef;
+        csr_late_read_addr = TIME; #1;
+        check("late time read samples time_i", csr_late_val == time_i);
 
         write_csr(MCOUNTINHIBIT, '1);
         read_csr("mcountinhibit exposes only CY and IR", MCOUNTINHIBIT, 64'h0000_0000_0000_0005);
@@ -276,9 +303,11 @@ module tb_csrfile;
         trap.pc = 32'h0000_0080;
         trap.exception_cause = BREAKPOINT;
         trap.dest_machine_privilege = M_MODE;
+        trap_take = 1'b1;
         @(posedge clk);
         #1;
         trap = '0;
+        trap_take = 1'b0;
         check("trap entry writes mepc", mepc == 32'h0000_0080);
         read_csr("trap entry writes mcause", MCAUSE, 32'h0000_0003);
 

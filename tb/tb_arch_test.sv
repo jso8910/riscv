@@ -131,12 +131,12 @@ module tb_arch_test;
                          history_valid[index], history_commit[index], history_trap[index]);
             end
             $display("ARCH-TRACE: final pc=0x%016h fetch_pc=0x%016h inst=0x%08h valid=%0b commit=%0b trap=%0b privilege=%0d",
-                     dut.inst_pc, dut.fetch_pc, dut.inst_q, dut.inst_valid, dut.commit,
-                     dut.trap.is_trap, dut.machine_privilege);
+                     dut.id_pc, dut.if_fetch_pc, dut.id_inst, dut.id_valid, dut.wb_retire,
+                     dut.wb_trap.is_trap, dut.machine_privilege);
             $display("ARCH-TRACE: final next_pc=0x%016h inst_addr=0x%016h data_addr=0x%016h data_we=0x%0h",
-                     dut.next_pc, inst_mem_addr, data_mem_addr, data_mem_we);
+                     dut.redirect_pc, inst_mem_addr, data_mem_addr, data_mem_we);
             $display("ARCH-TRACE: final trap interrupt=%0b exception_cause=%0d tval=0x%016h mepc=0x%016h mtvec=0x%016h",
-                     dut.trap.is_interrupt, dut.trap.exception_cause, dut.trap.tval,
+                     dut.wb_trap.is_interrupt, dut.wb_trap.exception_cause, dut.wb_trap.tval,
                      dut.mepc, dut.mtvec);
             $display("ARCH-TRACE: final tohost=0x%016h time=0x%016h", tohost, time_q);
         end
@@ -159,11 +159,11 @@ module tb_arch_test;
     // Trap and page-fault signals are combinational.  Log them when they assert
     // rather than only at posedge, where the fetch/redirect logic may already
     // have removed the transient assertion.
-    always @(dut.trap.is_trap or dut.fetch_page_fault or dut.load_page_fault or dut.store_page_fault) begin
-        if (debug && (dut.trap.is_trap || dut.fetch_page_fault || dut.load_page_fault || dut.store_page_fault)) begin
+    always @(dut.wb_trap.is_trap or dut.fetch_page_fault or dut.mem_data_load_page_fault or dut.mem_data_store_page_fault) begin
+        if (debug && (dut.wb_trap.is_trap || dut.fetch_page_fault || dut.mem_data_load_page_fault || dut.mem_data_store_page_fault)) begin
             $display("ARCH-TRACE: fault event cycle=%0d pc=0x%016h fetch_pf=%0b load_pf=%0b store_pf=%0b trap=%0b cause=%0d tval=0x%016h satp=0x%016h privilege=%0d mepc=0x%016h sepc=0x%016h",
-                     cycle, dut.inst_pc, dut.fetch_page_fault, dut.load_page_fault, dut.store_page_fault,
-                     dut.trap.is_trap, dut.trap.exception_cause, dut.trap.tval, dut.satp,
+                     cycle, dut.wb_pc, dut.fetch_page_fault, dut.mem_data_load_page_fault, dut.mem_data_store_page_fault,
+                     dut.wb_trap.is_trap, dut.wb_trap.exception_cause, dut.wb_trap.tval, dut.satp,
                      dut.machine_privilege, dut.mepc, dut.sepc);
         end
     end
@@ -183,34 +183,34 @@ module tb_arch_test;
                 end
             end
 
-            history_pc[history_head] = dut.inst_pc;
-            history_instruction[history_head] = dut.inst_q;
+            history_pc[history_head] = dut.id_pc;
+            history_instruction[history_head] = dut.id_inst;
             history_cycle[history_head] = cycle;
-            history_valid[history_head] = dut.inst_valid;
-            history_commit[history_head] = dut.commit;
-            history_trap[history_head] = dut.trap.is_trap;
+            history_valid[history_head] = dut.id_valid;
+            history_commit[history_head] = dut.wb_retire;
+            history_trap[history_head] = dut.wb_trap.is_trap;
             history_head = (history_head + 1) % TRACE_DEPTH;
             if (history_count < TRACE_DEPTH)
                 history_count++;
 
-            if (debug && dut.inst_valid) begin
+            if (debug && dut.id_valid) begin
                 $display("ARCH-TRACE: cycle=%0d pc=0x%016h inst=0x%08h valid=%0b commit=%0b trap=%0b privilege=%0d next_pc=0x%016h",
-                         cycle, dut.inst_pc, dut.inst_q, dut.inst_valid, dut.commit,
-                         dut.trap.is_trap, dut.machine_privilege, dut.next_pc);
+                         cycle, dut.id_pc, dut.id_inst, dut.id_valid, dut.wb_retire,
+                         dut.wb_trap.is_trap, dut.machine_privilege, dut.redirect_pc);
             end
-            if (debug && dut.trap.is_trap) begin
+            if (debug && dut.wb_trap.is_trap) begin
                 $display("ARCH-TRACE: trap cycle=%0d interrupt=%0b exception_cause=%0d tval=0x%016h dest_privilege=%0d",
-                         cycle, dut.trap.is_interrupt, dut.trap.exception_cause, dut.trap.tval,
-                         dut.trap.dest_machine_privilege);
+                         cycle, dut.wb_trap.is_interrupt, dut.wb_trap.exception_cause, dut.wb_trap.tval,
+                         dut.wb_trap.dest_machine_privilege);
             end
             if (trace_memory && (data_mem_we != '0)) begin
                 $display("ARCH-TRACE: store cycle=%0d addr=0x%016h we=0x%0h data=0x%016h",
                          cycle, data_mem_addr, data_mem_we, data_mem_wdata);
             end
-            if (debug && dut.inst_valid && (dut.ctrl.csr_read || dut.ctrl.csr_write)) begin
+            if (debug && dut.id_valid && (dut.id_ctrl.csr_read || dut.id_ctrl.csr_write)) begin
                 $display("ARCH-TRACE: csr cycle=%0d addr=0x%03h read=%0b write=%0b rs1=0x%016h value=0x%016h mip=0x%016h mideleg=0x%016h menvcfg=0x%016h stip=%0b",
-                         cycle, dut.ctrl.csr_addr, dut.ctrl.csr_read, dut.ctrl.csr_write,
-                         dut.rs1_data, dut.csr_val, dut.mip, dut.mideleg, dut.u_csrfile.menvcfg,
+                         cycle, dut.id_ctrl.csr_addr, dut.id_ctrl.csr_read, dut.id_ctrl.csr_write,
+                         dut.id_rs1_data_rf, dut.id_csr_data_read_raw, dut.mip, dut.mideleg, dut.u_csrfile.menvcfg,
                          dut.stip);
             end
         end

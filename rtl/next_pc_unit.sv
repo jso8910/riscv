@@ -3,15 +3,17 @@ import riscv::*;
 module next_pc_unit (
     input ctrl_t            ctrl_i,
     input logic [XLEN-1:0]  pc_i,
+    input logic [XLEN-1:0]  pred_pc_i,
     input logic [XLEN-1:0]  rs1_data_i,
     input logic [XLEN-1:0]  rs2_data_i,
     input logic [XLEN-1:0]  alu_res_i,
     input logic [XLEN-1:0]  mepc_i,
-    input logic [XLEN-1:0]  mtvec_i,
+    // input logic [XLEN-1:0]  mtvec_i,
     input logic [XLEN-1:0]  sepc_i,
-    input logic [XLEN-1:0]  stvec_i,
-    input trap_t            trap_i,
+    // input logic [XLEN-1:0]  stvec_i,
+    // input trap_t            trap_i,
     output logic [XLEN-1:0] next_pc_o,
+    output logic            redirect_o,
     output logic            address_misaligned_o
 );
     logic [XLEN-1:0] op1, op2;
@@ -23,6 +25,7 @@ module next_pc_unit (
     assign op1_signed = signed'(op1), op2_signed = signed'(op2);
     assign pc_seq = pc_i + PC_INC;
 
+    assign redirect_o = pred_pc_i != next_pc_o;
 
     always_comb begin
         // In the case of a return from a trap, we want to branch to the MEPC
@@ -58,29 +61,30 @@ module next_pc_unit (
     end
 
     always_comb begin
-        case (trap_i.dest_machine_privilege)
-            M_MODE : trap_vec = mtvec_i;
-            S_MODE : trap_vec = stvec_i;
-            default : trap_vec = mtvec_i;
-        endcase
-        // Set next PC.  This is separate from branch-target alignment so an
-        // instruction-address-misaligned exception cannot form a combinational
-        // loop through trap generation.
-        if (trap_i.is_trap) begin
-            case (trap_mode_t'(trap_vec[1:0]))
-                TRAP_DIRECT : next_pc_o = {trap_vec[XLEN-1:2], 2'b00};
-                TRAP_VEC : begin
-                    // If an asynchronous interrupt, set PC to BASE + 4*cause
-                    if (trap_i.is_interrupt) begin
-                        next_pc_o = {trap_vec[XLEN-1:2], 2'b00} + 4*(XLEN'(trap_i.interrupt_cause));
-                    end else
-                        next_pc_o = {trap_vec[XLEN-1:2], 2'b00};
-                end
-                // xTVEC writes are legalized to direct or vectored mode. Use
-                // direct mode defensively while reset-state signals settle.
-                default: next_pc_o = {trap_vec[XLEN-1:2], 2'b00};
-            endcase
-        end else if (branch_taken)
+        // case (trap_i.dest_machine_privilege)
+        //     M_MODE : trap_vec = mtvec_i;
+        //     S_MODE : trap_vec = stvec_i;
+        //     default : trap_vec = mtvec_i;
+        // endcase
+        // // Set next PC.  This is separate from branch-target alignment so an
+        // // instruction-address-misaligned exception cannot form a combinational
+        // // loop through trap generation.
+        // if (trap_i.is_trap) begin
+        //     case (trap_mode_t'(trap_vec[1:0]))
+        //         TRAP_DIRECT : next_pc_o = {trap_vec[XLEN-1:2], 2'b00};
+        //         TRAP_VEC : begin
+        //             // If an asynchronous interrupt, set PC to BASE + 4*cause
+        //             if (trap_i.is_interrupt) begin
+        //                 next_pc_o = {trap_vec[XLEN-1:2], 2'b00} + 4*(XLEN'(trap_i.interrupt_cause));
+        //             end else
+        //                 next_pc_o = {trap_vec[XLEN-1:2], 2'b00};
+        //         end
+        //         // xTVEC writes are legalized to direct or vectored mode. Use
+        //         // direct mode defensively while reset-state signals settle.
+        //         default: next_pc_o = {trap_vec[XLEN-1:2], 2'b00};
+        //     endcase
+        // end else if (branch_taken)
+        if (branch_taken)
             next_pc_o = pc_branch;
         else
             next_pc_o = pc_seq;

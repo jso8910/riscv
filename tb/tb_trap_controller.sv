@@ -5,8 +5,8 @@ import riscv::*;
 module tb_trap_controller;
     ctrl_t ctrl;
     logic hardware_fault, csr_illegal, address_misaligned;
-    mem_fault_t [MEM_READ_PORTS-1:0] mem_fault;
-    logic [MEM_READ_PORTS-1:0][XLEN-1:0] mem_fault_addr;
+    mem_fault_t data_mem_fault, fetch_mem_fault;
+    logic [XLEN-1:0] data_mem_fault_addr, fetch_mem_fault_addr;
     logic load_page_fault, store_page_fault, fetch_page_fault;
     logic [XLEN-1:0] page_fault_addr;
     logic [XLEN-1:0] mip, mie, sip, sie, mstatus, mideleg, medeleg;
@@ -18,7 +18,8 @@ module tb_trap_controller;
     trap_controller dut (
         .ctrl_i(ctrl), .hardware_fault_i(hardware_fault),
         .csr_illegal_inst_i(csr_illegal), .address_misaligned_i(address_misaligned),
-        .mem_fault_i(mem_fault), .mem_fault_addr_i(mem_fault_addr),
+        .data_mem_fault_i(data_mem_fault), .data_mem_fault_addr_i(data_mem_fault_addr),
+        .fetch_mem_fault_i(fetch_mem_fault), .fetch_mem_fault_addr_i(fetch_mem_fault_addr),
         .load_page_fault_i(load_page_fault), .store_page_fault_i(store_page_fault),
         .fetch_page_fault_i(fetch_page_fault), .page_fault_addr_i(page_fault_addr),
         .mip_i(mip), .mie_i(mie), .sip_i(sip), .sie_i(sie), .mstatus_i(mstatus),
@@ -49,8 +50,10 @@ module tb_trap_controller;
             hardware_fault = 0;
             csr_illegal = 0;
             address_misaligned = 0;
-            mem_fault = '0;
-            mem_fault_addr = '0;
+            data_mem_fault = FAULT_NONE;
+            fetch_mem_fault = FAULT_NONE;
+            data_mem_fault_addr = '0;
+            fetch_mem_fault_addr = '0;
             load_page_fault = 0;
             store_page_fault = 0;
             fetch_page_fault = 0;
@@ -80,13 +83,13 @@ module tb_trap_controller;
         check("store page fault has store cause", 1, STORE_PAGE_FAULT, page_fault_addr);
 
         clear_inputs();
-        mem_fault[0] = PMP_READ;
-        mem_fault_addr[0] = 64'h3008;
+        data_mem_fault = PMP_READ;
+        data_mem_fault_addr = 64'h3008;
         check("PMP read fault becomes a load access fault", 1, LOAD_ACCESS_FAULT, 64'h3008);
 
         clear_inputs();
-        mem_fault[0] = PMA_WRITE;
-        mem_fault_addr[0] = 64'h4000;
+        data_mem_fault = PMA_WRITE;
+        data_mem_fault_addr = 64'h4000;
         fetch_page_fault = 1;
         page_fault_addr = 64'h5000;
         check("fetch fault priority beats data access fault", 1,

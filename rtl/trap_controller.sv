@@ -7,12 +7,14 @@ module trap_controller(
     input logic               address_misaligned_i,
 
     // Memory faults
-    input mem_fault_t [MEM_READ_PORTS-1:0]     mem_fault_i,
-    input logic [MEM_READ_PORTS-1:0][XLEN-1:0] mem_fault_addr_i,
-    input logic                                load_page_fault_i,
-    input logic                                store_page_fault_i,
-    input logic                                fetch_page_fault_i,
-    input logic [XLEN-1:0]                     page_fault_addr_i,
+    input mem_fault_t      data_mem_fault_i,
+    input logic [XLEN-1:0] data_mem_fault_addr_i,
+    input mem_fault_t      fetch_mem_fault_i,
+    input logic [XLEN-1:0] fetch_mem_fault_addr_i,
+    input logic            load_page_fault_i,
+    input logic            store_page_fault_i,
+    input logic            fetch_page_fault_i,
+    input logic [XLEN-1:0] page_fault_addr_i,
 
     // Interrupts
     input logic [XLEN-1:0]    mip_i,
@@ -28,6 +30,8 @@ module trap_controller(
     input [XLEN-1:0]          pc_i,
     output trap_t             trap_o
 );
+    mem_fault_t [0:1] mem_faults;
+    logic [0:1][XLEN-1:0] mem_fault_addrs;
     logic m_is_interruptible, s_is_interruptible, write_fault, read_fault, fetch_fault;
 
     logic [$clog2(MEM_READ_PORTS)-1:0] write_fault_idx, read_fault_idx, fetch_fault_idx;
@@ -43,6 +47,9 @@ module trap_controller(
 
     // The medeleg we use should be all 0s if we are in machine mode
     assign medeleg_mod = current_privilege_i == M_MODE ? '0 : medeleg_i;
+
+    assign mem_faults = {data_mem_fault_i, fetch_mem_fault_i};
+    assign mem_fault_addrs = {data_mem_fault_addr_i, fetch_mem_fault_addr_i};
 
 
     always_comb begin
@@ -99,9 +106,9 @@ module trap_controller(
         read_fault_idx = '0;
         write_fault_idx = '0;
         fetch_fault_idx = '0;
-        for (int i = 0; i < MEM_READ_PORTS; i++) begin
+        for (int i = 0; i < 2; i++) begin
             // Fetch > write > read
-            case (mem_fault_i[i])
+            case (mem_faults[i])
                 FAULT_NONE : ;
                 PMA_FETCH, PMP_FETCH : begin
                     fetch_fault = '1;
@@ -139,7 +146,7 @@ module trap_controller(
         end else if (fetch_fault) begin
             trap_o.is_trap = '1;
             trap_o.exception_cause = INST_ACCESS_FAULT;
-            trap_o.tval = mem_fault_addr_i[fetch_fault_idx];
+            trap_o.tval = mem_fault_addrs[fetch_fault_idx];
 
             if (medeleg_mod[INST_ACCESS_FAULT] && current_privilege_i < M_MODE) begin
                 trap_o.dest_machine_privilege = S_MODE;
@@ -206,7 +213,7 @@ module trap_controller(
         end else if (write_fault) begin
             trap_o.is_trap = '1;
             trap_o.exception_cause = STORE_ACCESS_FAULT;
-            trap_o.tval = mem_fault_addr_i[write_fault_idx];
+            trap_o.tval = mem_fault_addrs[write_fault_idx];
 
             if (medeleg_mod[STORE_ACCESS_FAULT] && current_privilege_i < M_MODE) begin
                 trap_o.dest_machine_privilege = S_MODE;
@@ -214,7 +221,7 @@ module trap_controller(
         end else if (read_fault) begin
             trap_o.is_trap = '1;
             trap_o.exception_cause = LOAD_ACCESS_FAULT;
-            trap_o.tval = mem_fault_addr_i[read_fault_idx];
+            trap_o.tval = mem_fault_addrs[read_fault_idx];
 
             if (medeleg_mod[LOAD_ACCESS_FAULT] && current_privilege_i < M_MODE) begin
                 trap_o.dest_machine_privilege = S_MODE;

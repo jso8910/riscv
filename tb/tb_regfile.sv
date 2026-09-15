@@ -5,12 +5,9 @@ import riscv::*;
 module tb_regfile;
     logic                  clk;
     logic                  rst_n;
-    ctrl_t                 ctrl;
-    logic [XLEN-1:0]       alu_data;
-    logic [XLEN-1:0]       mem_data;
-    logic [XLEN-1:0]       pc;
-    logic [XLEN-1:0]       imm;
-    logic [XLEN-1:0]       csr_data;
+    logic [REG_ADDR_W-1:0] rs1_addr, rs2_addr, rd_addr;
+    logic                  reg_write;
+    logic [XLEN-1:0]       rd_data;
     logic                  commit;
     logic [XLEN-1:0]       rs1_data;
     logic [XLEN-1:0]       rs2_data;
@@ -21,13 +18,12 @@ module tb_regfile;
     regfile dut (
         .clk(clk),
         .rst_n(rst_n),
-        .ctrl_i(ctrl),
+        .rs1_addr_i(rs1_addr),
+        .rs2_addr_i(rs2_addr),
+        .rd_addr_i(rd_addr),
+        .reg_write_i(reg_write),
         .commit_i(commit),
-        .alu_i(alu_data),
-        .mem_i(mem_data),
-        .pc_i(pc),
-        .csr_i(csr_data),
-        .imm_i(imm),
+        .rd_data_i(rd_data),
         .rs1_data_o(rs1_data),
         .rs2_data_o(rs2_data)
     );
@@ -40,13 +36,12 @@ module tb_regfile;
         input logic                  write_en
     );
         begin
-            ctrl.rd_addr = addr;
-            ctrl.wb_sel = WB_ALU;
-            ctrl.reg_write = write_en;
-            alu_data = data;
+            rd_addr = addr;
+            reg_write = write_en;
+            rd_data = data;
             @(posedge clk);
             #1;
-            ctrl.reg_write = 1'b0;
+            reg_write = 1'b0;
         end
     endtask
 
@@ -58,8 +53,8 @@ module tb_regfile;
         input logic [XLEN-1:0]       expected_rs2
     );
         begin
-            ctrl.rs1_addr = rs1;
-            ctrl.rs2_addr = rs2;
+            rs1_addr = rs1;
+            rs2_addr = rs2;
             #1;
 
             tests_run++;
@@ -79,13 +74,11 @@ module tb_regfile;
     initial begin
         clk = 1'b0;
         rst_n = 1'b1;
-        ctrl = '0;
-        ctrl.wb_sel = WB_ALU;
-        alu_data = '0;
-        mem_data = '0;
-        pc = '0;
-        imm = '0;
-        csr_data = '0;
+        rs1_addr = '0;
+        rs2_addr = '0;
+        rd_addr = '0;
+        reg_write = 1'b0;
+        rd_data = '0;
         commit = 1'b1;
         tests_run = 0;
         tests_failed = 0;
@@ -118,18 +111,17 @@ module tb_regfile;
         check_read("overwrite existing register", 5'd1, 5'd2,
                    32'h8765_4321, 32'hcafe_babe);
 
-        ctrl.rs1_addr = 5'd4;
-        ctrl.rs2_addr = 5'd1;
-        ctrl.rd_addr = 5'd4;
-        ctrl.wb_sel = WB_ALU;
-        ctrl.reg_write = 1'b1;
-        alu_data = 32'h0bad_f00d;
+        rs1_addr = 5'd4;
+        rs2_addr = 5'd1;
+        rd_addr = 5'd4;
+        reg_write = 1'b1;
+        rd_data = 32'h0bad_f00d;
         #1;
         check_read("same-cycle read before clock sees old value", 5'd4, 5'd1,
                    '0, 32'h8765_4321);
         @(posedge clk);
         #1;
-        ctrl.reg_write = 1'b0;
+        reg_write = 1'b0;
         check_read("read after write clock sees new value", 5'd4, 5'd1,
                    32'h0bad_f00d, 32'h8765_4321);
 

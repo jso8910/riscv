@@ -83,6 +83,19 @@ package riscv;
         logic valid;
     } tlb_entry_t;
 
+    // SFENCE.VMA's operands can be reduced in EX, after normal operand
+    // forwarding.  This is the complete selector needed at retirement; it
+    // deliberately retains the x0 selectors because x0 means "all", whereas
+    // a non-x0 register whose value is zero selects VPN/ASID zero.
+    typedef struct packed {
+        logic        valid;
+        logic        vaddr_all;
+        logic        vaddr_canonical;
+        logic [26:0] vpn;
+        logic        asid_all;
+        logic [SATP_ASID_MSB-SATP_ASID_LSB:0] asid;
+    } sfence_sel_t;
+
     typedef enum logic [1:0] {
         MREAD,  // read
         MWRITE, // write
@@ -283,6 +296,16 @@ package riscv;
     localparam logic [11:0] INSTRET        = 'hC02;
     localparam logic [11:0] HPMCOUNTER3    = 'hC04;
     localparam logic [11:0] HPMCOUNTER31   = 'hC1F;
+
+    // Includes timers and other things which can change between CSR read in ID and writeback in WB
+    // without an explicit CSR modification. The only registers which currently aren't covered which
+    // have this issue are MIP and SIP, which can sometimes change their value but not flush if
+    // interrupts are not enabled. However, in this case, there is no time that is architecturally
+    // "correct", per se, to have the MIP and SIP bits set.
+    function automatic logic is_late_csr(input logic [11:0] csr_addr);
+        return csr_addr == MCYCLE || csr_addr == CYCLE || csr_addr == TIME
+            || csr_addr == MINSTRET || csr_addr == INSTRET;
+    endfunction
 
     // ### Machine counter setup
     localparam logic [11:0] MCOUNTINHIBIT  = 'h320;
@@ -612,8 +635,7 @@ package riscv;
                                                          | (XLEN'(1) << S_EXTERNAL);
     localparam logic [XLEN-1:0] MIP_WRITABLE_MASK = (XLEN'(1) << S_SOFTWARE)
                                                     | (XLEN'(1) << S_EXTERNAL);
-    localparam logic [XLEN-1:0] MEDELEG_WRITABLE_MASK = (XLEN'(1) << INST_ADDR_MISALIGNED)
-                                                        | (XLEN'(1) << INST_ACCESS_FAULT)
+    localparam logic [XLEN-1:0] MEDELEG_WRITABLE_MASK = (XLEN'(1) << INST_ACCESS_FAULT)
                                                         | (XLEN'(1) << ILLEGAL_INSTRUCTION)
                                                         | (XLEN'(1) << BREAKPOINT)
                                                         | (XLEN'(1) << LOAD_ADDRESS_MISALIGNED)

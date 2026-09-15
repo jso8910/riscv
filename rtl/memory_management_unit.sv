@@ -4,9 +4,9 @@ module memory_management_unit (
     input                     clk,
     input                     rst_n,
     input logic               commit_i,
-    input ctrl_t              ctrl_i,
-    input logic [XLEN-1:0]    rs1_data_i,
-    input logic [XLEN-1:0]    rs2_data_i,
+    input logic               mem_valid_i,
+    input ctrl_t              ctrl_mem_i,
+    input sfence_sel_t        sfence_sel_i,
     input logic [XLEN-1:0]    addr_i,
     input logic [XLEN-1:0]    pc_i,
     input mem_res_t [MEM_READ_PORTS-1:0] mem_res_i,
@@ -20,10 +20,11 @@ module memory_management_unit (
     output mem_req_t [MEM_READ_PORTS-1:0] mem_req_o,
     output logic              data_ptw_stall_o,
     output logic              pc_ptw_stall_o,
-    output logic              load_page_fault_o,
-    output logic              store_page_fault_o,
-    output logic              fetch_page_fault_o,
-    output logic [XLEN-1:0]   page_fault_addr_o,
+    output logic              load_page_fault_o,    // goes to MEM pipeline stage
+    output logic              store_page_fault_o,   // goes to MEM pipeline stage
+    output logic              fetch_page_fault_o,   // goes back to IF pipeline stage
+    output logic [XLEN-1:0]   page_fault_addr_a_o,
+    output logic [XLEN-1:0]   page_fault_addr_b_o,
     output mem_fault_t [MEM_READ_PORTS-1:0]   mem_fault_o,
     output logic [MEM_READ_PORTS-1:0][XLEN-1:0] mem_fault_addr_o
 );
@@ -55,9 +56,7 @@ module memory_management_unit (
         .pte_valid_i      (ptw_pte_valid),
         .satp_i           (satp_i),
         .commit_i         (commit_i),
-        .ctrl_i           (ctrl_i),
-        .rs1_data_i       (rs1_data_i),
-        .rs2_data_i       (rs2_data_i),
+        .sfence_sel_i     (sfence_sel_i),
         .ptw_flush_i      (ptw_flush_i),
         .ptw_mem_addr_o   (ptw_mem_addr),
         .ptw_mem_read_o   (ptw_mem_read),
@@ -70,9 +69,7 @@ module memory_management_unit (
         .clk                (clk),
         .rst_n              (rst_n),
         .commit_i           (commit_i),
-        .ctrl_i             (ctrl_i),
-        .rs1_data_i         (rs1_data_i),
-        .rs2_data_i         (rs2_data_i),
+        .sfence_sel_i       (sfence_sel_i),
         .op_i               (raw_req[0].op_original),
         .current_privilege_i(raw_req[0].effective_privilege),
         .lookup_en_i        (data_lookup_en),
@@ -93,9 +90,7 @@ module memory_management_unit (
         .clk                (clk),
         .rst_n              (rst_n),
         .commit_i           (commit_i),
-        .ctrl_i             (ctrl_i),
-        .rs1_data_i         (rs1_data_i),
-        .rs2_data_i         (rs2_data_i),
+        .sfence_sel_i       (sfence_sel_i),
         .op_i               (raw_req[1].op_original),
         .current_privilege_i(raw_req[1].effective_privilege),
         .lookup_en_i        (pc_lookup_en),
@@ -122,22 +117,24 @@ module memory_management_unit (
 
     always_comb begin
         // Assign page fault details, giving priority to fetch > store > load
-        page_fault_addr_o = '0;
+        page_fault_addr_a_o = '0;
+        page_fault_addr_b_o = '0;
         fetch_page_fault_o = '0;
         load_page_fault_o = '0;
         store_page_fault_o = '0;
         if (data_page_fault) begin
             case (raw_req[0].op_original)
                 MFETCH : begin
-                    page_fault_addr_o = raw_req[0].virtual_address;
+                    page_fault_addr_a_o = raw_req[0].virtual_address;
                     fetch_page_fault_o = '1;
+                    $fatal(1, "Memory port 0 should not be fetching instructions!");
                 end
                 MWRITE : begin
-                    page_fault_addr_o = raw_req[0].virtual_address;
+                    page_fault_addr_a_o = raw_req[0].virtual_address;
                     store_page_fault_o = '1;
                 end
                 MREAD : begin
-                    page_fault_addr_o = raw_req[0].virtual_address;
+                    page_fault_addr_a_o = raw_req[0].virtual_address;
                     load_page_fault_o = '1;
                 end
                 default : ;
@@ -145,25 +142,21 @@ module memory_management_unit (
         end
 
         if (pc_page_fault) begin
+            // Currently, this is guaranteed to be MFETCH
             case (raw_req[1].op_original)
                 MFETCH : begin
-                    // Fetch always takes precedence
-                    page_fault_addr_o = raw_req[1].virtual_address;
+                    page_fault_addr_b_o = raw_req[1].virtual_address;
                     fetch_page_fault_o = '1;
                 end
                 MWRITE : begin
-                    // Write only takes precedence if we don't have a fetch fault
-                    if (!fetch_page_fault_o) begin
-                        page_fault_addr_o = raw_req[1].virtual_address;
-                        store_page_fault_o = '1; 
-                    end
+                    page_fault_addr_b_o = raw_req[1].virtual_address;
+                    store_page_fault_o = '1; 
+                    $fatal(1, "Memory port 1 should not be writing data!");
                 end
                 MREAD : begin
-                    // Read takes precedence if we don't have a fetch or store fault
-                    if (!fetch_page_fault_o && !store_page_fault_o) begin
-                        page_fault_addr_o = raw_req[1].virtual_address;
-                        load_page_fault_o = '1;
-                    end
+                    page_fault_addr_b_o = raw_req[1].virtual_address;
+                    load_page_fault_o = '1;
+                    $fatal(1, "Memory port 0 should not be reading data!");
                 end
                 default : ;
             endcase
@@ -208,14 +201,14 @@ module memory_management_unit (
 
         raw_req[0].address = addr_i;
         raw_req[0].virtual_address = addr_i;
-        raw_req[0].size = ctrl_i.mem_size;
-        raw_req[0].mem_signed = ctrl_i.mem_signed;
-        if (ctrl_i.mem_read) begin
+        raw_req[0].size = ctrl_mem_i.mem_size;
+        raw_req[0].mem_signed = ctrl_mem_i.mem_signed;
+        if (mem_valid_i && ctrl_mem_i.mem_read) begin
             raw_req[0].valid = 1;
             raw_req[0].mem_access_requested = 1;
             raw_req[0].op = MREAD;
             raw_req[0].op_original = MREAD;
-        end else if (ctrl_i.mem_write) begin
+        end else if (mem_valid_i && ctrl_mem_i.mem_write) begin
             raw_req[0].valid = 1;
             raw_req[0].mem_access_requested = 1;
             raw_req[0].op = MWRITE;
