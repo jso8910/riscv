@@ -33,8 +33,7 @@ module riscv_core (
           load_page_fault, store_page_fault, mem_valid;
     logic [XLEN-1:0] mem_store_data;
 
-    logic [7:0]      pmp_cfg [0:PMP_ENTRY_COUNT-1];
-    logic [XLEN-1:0] pmp_addr [0:PMP_ENTRY_COUNT-1];
+    pmp_decoded_entry_t pmp_decoded [0:PMP_ENTRY_COUNT-1];
 
     mem_fault_t [MEM_READ_PORTS-1:0] mem_fault, mem_fault_q;
     mem_fault_t inst_mem_fault_q;
@@ -460,8 +459,7 @@ module riscv_core (
         // SPECULATION: mstatus and satp will not change before WB
         // PMPs are checked on every final physical request, including TLB hits and PTW reads, so a
         // PMP change does not require a TLB invalidation. The pipeline is flushed on SFENCE.VMA.
-        .pmp_cfg_i          (pmp_cfg),
-        .pmp_addr_i         (pmp_addr),
+        .pmp_decoded_i      (pmp_decoded),
         .ptw_flush_i        (ptw_flush),
         .current_privilege_i(machine_privilege),
         .mstatus_i          (mstatus),
@@ -615,8 +613,9 @@ module riscv_core (
         .stvec_o            (stvec),
         .mstatus_o          (mstatus),
         .stimecmp_o         (stimecmp),
-        .pmp_cfg_o          (pmp_cfg),
-        .pmp_addr_o         (pmp_addr),
+        .pmp_cfg_o          (),
+        .pmp_addr_o         (),
+        .pmp_decoded_o      (pmp_decoded),
         .mip_o              (mip),
         .mie_o              (mie),
         .sip_o              (sip),

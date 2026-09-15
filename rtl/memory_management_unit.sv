@@ -10,8 +10,7 @@ module memory_management_unit (
     input logic [XLEN-1:0]    addr_i,
     input logic [XLEN-1:0]    pc_i,
     input mem_res_t [MEM_READ_PORTS-1:0] mem_res_i,
-    input logic [7:0]          pmp_cfg_i [0:PMP_ENTRY_COUNT-1],
-    input logic [XLEN-1:0]     pmp_addr_i [0:PMP_ENTRY_COUNT-1],
+    input pmp_decoded_entry_t  pmp_decoded_i [0:PMP_ENTRY_COUNT-1],
     // PTW flush tells the TLBs to stop their active PTWs - asserted on fault/trap
     input logic               ptw_flush_i,
     input machine_privilege_t current_privilege_i,
@@ -108,8 +107,7 @@ module memory_management_unit (
     );
 
     physical_memory_checker physical_memory_checker (
-        .pmp_cfg_i   (pmp_cfg_i),
-        .pmp_addr_i  (pmp_addr_i),
+        .pmp_decoded_i(pmp_decoded_i),
         .mem_req_i   (mem_req_o),
         .fault_o     (mem_fault_o),
         .fault_addr_o(mem_fault_addr_o)

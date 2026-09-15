@@ -2,8 +2,7 @@ import riscv::*;
 
 module physical_memory_checker (
     // input machine_privilege_t  current_privilege_i,
-    input logic [7:0]          pmp_cfg_i [0:PMP_ENTRY_COUNT-1],
-    input logic [XLEN-1:0]     pmp_addr_i [0:PMP_ENTRY_COUNT-1],
+    input pmp_decoded_entry_t  pmp_decoded_i [0:PMP_ENTRY_COUNT-1],
     input mem_req_t [MEM_READ_PORTS-1:0]      mem_req_i,
     output mem_fault_t [MEM_READ_PORTS-1:0]   fault_o,
     output logic [MEM_READ_PORTS-1:0][XLEN-1:0] fault_addr_o
@@ -12,14 +11,6 @@ module physical_memory_checker (
     /* verilator lint_off ASCRANGE */
     pma_cfg_t [0:PMA_ENTRY_COUNT-1] pma_cfgs;
     /* verilator lint_on ASCRANGE */
-
-    logic pmp_matched [0:1], pmp_all_bytes [0:1],
-          bypass_permissions [0:1];
-    logic [PHYS_ADDR_WIDTH:0] bottom_of_range [0:1], top_of_range [0:1],
-                              pmp_range_btm [0:1], pmp_range_top [0:1];
-    localparam int PMP_INDEX_WIDTH = (PMP_ENTRY_COUNT > 1) ? $clog2(PMP_ENTRY_COUNT) : 1;
-    logic [PMP_INDEX_WIDTH-1:0] matching_pmp_idx [0:1];
-    logic [5:0] n_trailing_1s [0:1];
 
     logic [3:0] access_width [0:1];
 
@@ -126,21 +117,30 @@ module physical_memory_checker (
     genvar i;
     generate
         for (i = 0; i < MEM_READ_PORTS; i++) begin : gen_pmc
+            logic [PHYS_ADDR_WIDTH:0] pmp_access_low, pmp_access_high;
+            logic [PMP_ENTRY_COUNT-1:0] pmp_match_any, pmp_winner,
+                                         pmp_contains_all;
+            logic pmp_matched, pmp_selected_locked, pmp_selected_readable,
+                  pmp_selected_writable, pmp_selected_executable,
+                  pmp_selected_contains_all, bypass_permissions;
             always_comb begin
                 fault_o[i] = FAULT_NONE;
                 fault_addr_o[i] = mem_req_i[i].virtual_address;
                 access_width[i] = '0;
                 for (int j = 0; j < 8; j++)
                     access_addresses[i][j] = 0;
-                pmp_range_btm[i] = 0;
-                pmp_range_top[i] = 0;
-                matching_pmp_idx[i] = '0;
-                pmp_matched[i] = 0;
-                bottom_of_range[i] = 0;
-                top_of_range[i] = 0;
-                n_trailing_1s[i] = 0;
-                bypass_permissions[i] = 0;
-                pmp_all_bytes[i] = 1;
+                pmp_access_low = '0;
+                pmp_access_high = '0;
+                pmp_match_any = '0;
+                pmp_winner = '0;
+                pmp_contains_all = '0;
+                pmp_matched = 1'b0;
+                pmp_selected_locked = 1'b0;
+                pmp_selected_readable = 1'b0;
+                pmp_selected_writable = 1'b0;
+                pmp_selected_executable = 1'b0;
+                pmp_selected_contains_all = 1'b0;
+                bypass_permissions = 1'b0;
                 if (mem_req_i[i].valid) begin
                     case (mem_req_i[i].size)
                         MEM_BYTE : begin
@@ -242,115 +242,64 @@ module physical_memory_checker (
                     // =========
                     // PMP logic
                     // =========
-                    // Search in descending order so later matches overwrite
-                    // earlier ones and the final result is the lowest-numbered
-                    // matching PMP entry, as required by PMP priority rules.
-                    for (int j = PMP_ENTRY_COUNT - 1; j >= 0; j--) begin
-                        case (pmp_addr_matching_t'(pmp_cfg_i[j][PMPCFG_A_MSB : PMPCFG_A_LSB]))
-                            PMP_OFF : begin
-                                // 0..0 doesn't match
-                                bottom_of_range[i] = 0;
-                                top_of_range[i] = 0;
-                            end
-                            PMP_TOR : begin
-                                // The range is (pmp_addr_i[j-1] << 2)..(pmp_addr_i[j] << 2)
-                                // if j==0, the bottom of the range is 0
-                                if (j != 0)
-                                    bottom_of_range[i] = {1'b0, pmp_addr_i[j-1][PMP_ADDR_WIDTH-1:0], 2'b00};
-                                else
-                                    bottom_of_range[i] = '0;
-                                top_of_range[i] = {1'b0, pmp_addr_i[j][PMP_ADDR_WIDTH-1:0], 2'b00};
-                                
-                            end
-                            PMP_NA4 : begin
-                                // range is (pmp_addr_i[j] << 2)..((pmp_addr_i[j] << 2) + 4)
-                                bottom_of_range[i] = {1'b0, pmp_addr_i[j][PMP_ADDR_WIDTH-1:0], 2'b00};
-                                top_of_range[i] = {1'b0, pmp_addr_i[j][PMP_ADDR_WIDTH-1:0], 2'b00} + (PHYS_ADDR_WIDTH + 1)'(3'd4);
-                            end
-                            PMP_NAPOT : begin
-                                n_trailing_1s[i] = 0;
-                                // range is:
-                                // base_addr = (pmp_addr_i[j] >> (n_trailing_1s + 1)) << (n_trailing_1s + 3)
-                                // This clears n_trailing_1s bits, then, on net, shifts the address by 2
-                                // size = 1 << (3 + n_trailing_1s)
-                                // so the range is base_addr..base_addr+size (uninclusive)
-                                for (int k = 0; k < PMP_ADDR_WIDTH - 1; k++) begin
-                                    // The moment this if statement isn't taken, n_trailing_1s == k will never
-                                    // be true again, and thus it will never be incremented again.
-                                    if (pmp_addr_i[j][k] == 1'b1) begin
-                                        if (n_trailing_1s[i] == k[5:0]) begin
-                                            n_trailing_1s[i] += 1;
-                                        end
-                                    end
-                                end
-                                // Widen before shifting: a NAPOT region can end at the
-                                // exclusive end of the physical address space.
-                                bottom_of_range[i] = ({3'b000, pmp_addr_i[j][PMP_ADDR_WIDTH-1:0]} >> (n_trailing_1s[i] + 1))
-                                                << (n_trailing_1s[i] + 3);
-                                top_of_range[i] = bottom_of_range[i]
-                                            + ((PHYS_ADDR_WIDTH + 1)'(1'b1) << (3 + n_trailing_1s[i]));
-                            end
-                            // Here, I skip the $fatal(1) because I specifically know that there will never be
-                            // any more PMA modes.
-                            // This is necessary because, for a very brief moment at the time when reset is
-                            // asserted, this config value == 2'bxx (since the non blocking cfg <= 0 in the CSR
-                            // hasn't yet completed). So, this default branch is accessed briefly.
-                            default: ;
-                        endcase
-                        for (int k = 0; k < 8; k++) begin
-                            if (k < int'(access_width[i])) begin
-                                if (bottom_of_range[i] <= {1'b0, access_addresses[i][k][PHYS_ADDR_WIDTH-1:0]} && {1'b0, access_addresses[i][k][PHYS_ADDR_WIDTH-1:0]} < top_of_range[i]) begin
-                                    matching_pmp_idx[i] = j[PMP_INDEX_WIDTH-1:0];
-                                    pmp_matched[i] = 1;
-                                    pmp_range_btm[i] = bottom_of_range[i];
-                                    pmp_range_top[i] = top_of_range[i];
-                                end
-                            end
+                    // A legal memory access spans one contiguous interval.
+                    // Test overlap and containment once per PMP entry instead
+                    // of independently checking every byte of the access.
+                    pmp_access_low = {1'b0, mem_req_i[i].address[PHYS_ADDR_WIDTH-1:0]};
+                    pmp_access_high = pmp_access_low
+                                    + (PHYS_ADDR_WIDTH + 1)'(access_width[i] - 1'b1);
+                    for (int j = 0; j < PMP_ENTRY_COUNT; j++) begin
+                        pmp_match_any[j] = pmp_decoded_i[j].active
+                                         && pmp_access_low < pmp_decoded_i[j].top
+                                         && pmp_access_high >= pmp_decoded_i[j].bottom;
+                        pmp_contains_all[j] = pmp_decoded_i[j].active
+                                            && pmp_access_low >= pmp_decoded_i[j].bottom
+                                            && pmp_access_high < pmp_decoded_i[j].top;
+                        // PMP priority selects the lowest-numbered entry that
+                        // overlaps any part of the access.
+                        if (!pmp_matched && pmp_match_any[j]) begin
+                            pmp_winner[j] = 1'b1;
+                            pmp_matched = 1'b1;
                         end
                     end
 
-                    // If we are currently in M mode, we only apply a PMP's permissions if L == 1. However,
-                    // there is still a fault if the PMP partially covers the memory area.
-                    // We also bypass the permissions if there was no match, because M-mode permits unmatched accesses.
-                    bypass_permissions[i] = mem_req_i[i].effective_privilege == M_MODE && (!pmp_matched[i] || !pmp_cfg_i[matching_pmp_idx[i]][PMPCFG_L_IDX]);
-
-                    // There are three conditions for a PMP fault:
-                    //  1. There is at least one implemented PMP, but not one covering the entirety of this
-                    //     access.
-                    //  2. Not all bytes are in the selected PMP region (because the prioritization selects the
-                    //     lowest PMP which matches *any* of the bytes of the access)
-                    //  3. The R/W bit corresponding with this access's operation is not set.
-                    pmp_all_bytes[i] = 1;
-                    for (int j = 0; j < 8; j++) begin
-                        // this works even if no pmp matched because the default (0..0) has no address matches
-                        // even in any edge case
-                        if (j < int'(access_width[i]) &&
-                            !(pmp_range_btm[i] <= {1'b0, access_addresses[i][j][PHYS_ADDR_WIDTH-1:0]} &&
-                              {1'b0, access_addresses[i][j][PHYS_ADDR_WIDTH-1:0]} < pmp_range_top[i])) begin
-                            pmp_all_bytes[i] = 0;
+                    // Fold the one-hot winner into permission and containment
+                    // signals.  This avoids variable-index muxes such as
+                    // pmp_cfg_i[matching_pmp_idx].
+                    for (int j = 0; j < PMP_ENTRY_COUNT; j++) begin
+                        if (pmp_winner[j]) begin
+                            pmp_selected_locked = pmp_decoded_i[j].locked;
+                            pmp_selected_readable = pmp_decoded_i[j].readable;
+                            pmp_selected_writable = pmp_decoded_i[j].writable;
+                            pmp_selected_executable = pmp_decoded_i[j].executable;
+                            pmp_selected_contains_all = pmp_contains_all[j];
                         end
                     end
 
-                    if ((!bypass_permissions[i] && PMP_ENTRY_COUNT != 0 && !pmp_matched[i]) ||
-                        (pmp_matched[i] && !pmp_all_bytes[i])
-                    ) begin
+                    // M-mode bypasses permissions for an unlocked matched
+                    // entry and for an unmatched access.  A partial overlap
+                    // remains a fault in every privilege mode.
+                    bypass_permissions = mem_req_i[i].effective_privilege == M_MODE
+                                      && (!pmp_matched || !pmp_selected_locked);
+                    if ((!bypass_permissions && !pmp_matched)
+                        || (pmp_matched && !pmp_selected_contains_all)) begin
                         fault_o[i] = pmp_fault(mem_req_i[i].op_original);
-                    end 
+                    end
 
-                    if (!bypass_permissions[i] && pmp_matched[i]) begin
+                    if (!bypass_permissions && pmp_matched) begin
                         case (mem_req_i[i].op)
                             MFETCH : begin
-                                if (!pmp_cfg_i[matching_pmp_idx[i]][PMPCFG_X_IDX]) begin
+                                if (!pmp_selected_executable) begin
                                     fault_o[i] = pmp_fault(mem_req_i[i].op_original);
                                 end
                             end
                             MWRITE : begin
-                                if (!pmp_cfg_i[matching_pmp_idx[i]][PMPCFG_W_IDX]) begin
+                                if (!pmp_selected_writable) begin
                                     fault_o[i] = pmp_fault(mem_req_i[i].op_original);
                                 end
                             end
                             MREAD : begin
-                                if (!pmp_cfg_i[matching_pmp_idx[i]][PMPCFG_R_IDX]) begin
+                                if (!pmp_selected_readable) begin
                                     fault_o[i] = pmp_fault(mem_req_i[i].op_original);
                                 end
                             end

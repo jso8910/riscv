@@ -26,6 +26,7 @@ module csrfile (
     output logic [XLEN-1:0]      stimecmp_o,
     output logic [7:0]           pmp_cfg_o [0:PMP_ENTRY_COUNT-1],
     output logic [XLEN-1:0]      pmp_addr_o [0:PMP_ENTRY_COUNT-1],
+    output pmp_decoded_entry_t   pmp_decoded_o [0:PMP_ENTRY_COUNT-1],
     output logic [XLEN-1:0]      mip_o,
     output logic [XLEN-1:0]      mie_o,
     output logic [XLEN-1:0]      sip_o,
@@ -40,6 +41,15 @@ module csrfile (
     localparam int PMP_ENTRIES_PER_CFG_CSR = XLEN / 8;
     localparam int PMP_INDEX_WIDTH = (PMP_ENTRY_COUNT > 1) ? $clog2(PMP_ENTRY_COUNT) : 1;
 
+    function automatic logic [7:0] legalize_pmp_cfg(input logic [7:0] requested);
+        legalize_pmp_cfg = requested
+            & ((requested[PMPCFG_W_IDX] && !requested[PMPCFG_R_IDX]) ? 8'hfd : 8'hff);
+    endfunction
+
+    function automatic logic [XLEN-1:0] legalize_pmp_addr(input logic [XLEN-1:0] requested);
+        legalize_pmp_addr = {{(XLEN - PMP_ADDR_WIDTH){1'b0}}, requested[PMP_ADDR_WIDTH-1:0]};
+    endfunction
+
     // CSR register definitions
     logic [XLEN-1:0] mepc, mstatus, mtvec, mip, mie, mscratch, mcause,
                      mtval, menvcfg, mseccfg, senvcfg, mcycle, minstret, mcountinhibit,
@@ -51,6 +61,7 @@ module csrfile (
     // into an unpacked array of packed structs.
     logic [7:0]      pmp_cfg [0:PMP_ENTRY_COUNT-1];
     logic [XLEN-1:0] pmp_addr [0:PMP_ENTRY_COUNT-1];
+    pmp_decoded_entry_t pmp_decoded [0:PMP_ENTRY_COUNT-1];
 
     // Some internal signals
     logic            csr_exists;
@@ -62,6 +73,7 @@ module csrfile (
 
     assign pmp_cfg_o = pmp_cfg;
     assign pmp_addr_o = pmp_addr;
+    assign pmp_decoded_o = pmp_decoded;
 
     assign csr_exists = csr_addr_exists(ctrl_i.csr_addr);
     assign pmpcfg_index = ctrl_i.csr_addr[3:1] - PMPCFG0[3:1];
@@ -281,6 +293,7 @@ module csrfile (
             for (int i = 0; i < PMP_ENTRY_COUNT; i++) begin
                 pmp_cfg[i] <= '0;
                 pmp_addr[i] <= '0;
+                pmp_decoded[i] <= '0;
             end
             mcycle <= '0;
             minstret <= '0;
@@ -361,9 +374,17 @@ module csrfile (
                         if (PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i < PMP_ENTRY_COUNT &&
                             !pmp_cfg[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i][PMPCFG_L_IDX]) begin
                             pmp_cfg[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i] <=
-                                csr_data_i[8*i +: 8]
-                                & ((csr_data_i[8*i + PMPCFG_W_IDX]
-                                    && !csr_data_i[8*i + PMPCFG_R_IDX]) ? 8'hfd : 8'hff);
+                                legalize_pmp_cfg(csr_data_i[8*i +: 8]);
+                            if (PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i == 0)
+                                pmp_decoded[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i] <=
+                                    decode_pmp_entry(legalize_pmp_cfg(csr_data_i[8*i +: 8]),
+                                                     pmp_addr[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i],
+                                                     '0);
+                            else
+                                pmp_decoded[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i] <=
+                                    decode_pmp_entry(legalize_pmp_cfg(csr_data_i[8*i +: 8]),
+                                                     pmp_addr[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i],
+                                                     pmp_addr[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i - 1]);
                         end
                     end
                 end else if (ctrl_i.csr_addr >= PMPADDR0 && ctrl_i.csr_addr <= PMPADDR63) begin
@@ -372,10 +393,23 @@ module csrfile (
                     if (int'(pmpaddr_index) < PMP_ENTRY_COUNT &&
                         !pmp_cfg[pmpaddr_index[PMP_INDEX_WIDTH-1:0]][PMPCFG_L_IDX]) begin
                         if (int'(pmpaddr_index) == PMP_ENTRY_COUNT - 1) begin
-                            pmp_addr[pmpaddr_index[PMP_INDEX_WIDTH-1:0]] <= {{(XLEN - PMP_ADDR_WIDTH){1'b0}}, csr_data_i[PMP_ADDR_WIDTH-1:0]};
+                            pmp_addr[pmpaddr_index[PMP_INDEX_WIDTH-1:0]] <= legalize_pmp_addr(csr_data_i);
+                            pmp_decoded[pmpaddr_index[PMP_INDEX_WIDTH-1:0]] <=
+                                decode_pmp_entry(pmp_cfg[pmpaddr_index[PMP_INDEX_WIDTH-1:0]],
+                                                 legalize_pmp_addr(csr_data_i),
+                                                 pmpaddr_index == 0 ? '0 : pmp_addr[pmpaddr_index[PMP_INDEX_WIDTH-1:0] - 1'b1]);
                         end else if (!pmp_cfg[pmpaddr_index[PMP_INDEX_WIDTH-1:0] + 1'b1][PMPCFG_L_IDX]
                                      || pmp_addr_matching_t'(pmp_cfg[pmpaddr_index[PMP_INDEX_WIDTH-1:0] + 1'b1][PMPCFG_A_MSB:PMPCFG_A_LSB]) != PMP_TOR) begin
-                            pmp_addr[pmpaddr_index[PMP_INDEX_WIDTH-1:0]] <= {{(XLEN - PMP_ADDR_WIDTH){1'b0}}, csr_data_i[PMP_ADDR_WIDTH-1:0]};
+                            pmp_addr[pmpaddr_index[PMP_INDEX_WIDTH-1:0]] <= legalize_pmp_addr(csr_data_i);
+                            pmp_decoded[pmpaddr_index[PMP_INDEX_WIDTH-1:0]] <=
+                                decode_pmp_entry(pmp_cfg[pmpaddr_index[PMP_INDEX_WIDTH-1:0]],
+                                                 legalize_pmp_addr(csr_data_i),
+                                                 pmpaddr_index == 0 ? '0 : pmp_addr[pmpaddr_index[PMP_INDEX_WIDTH-1:0] - 1'b1]);
+                            if (pmp_addr_matching_t'(pmp_cfg[pmpaddr_index[PMP_INDEX_WIDTH-1:0] + 1'b1][PMPCFG_A_MSB:PMPCFG_A_LSB]) == PMP_TOR)
+                                pmp_decoded[pmpaddr_index[PMP_INDEX_WIDTH-1:0] + 1'b1] <=
+                                    decode_pmp_entry(pmp_cfg[pmpaddr_index[PMP_INDEX_WIDTH-1:0] + 1'b1],
+                                                     pmp_addr[pmpaddr_index[PMP_INDEX_WIDTH-1:0] + 1'b1],
+                                                     legalize_pmp_addr(csr_data_i));
                         end
                     end
                 end else if ((ctrl_i.csr_addr >= MHPMCOUNTER3 && ctrl_i.csr_addr <= MHPMCOUNTER31)

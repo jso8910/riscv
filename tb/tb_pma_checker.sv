@@ -5,15 +5,27 @@ import riscv::*;
 module tb_pma_checker;
     logic [7:0] pmp_cfg [0:PMP_ENTRY_COUNT-1];
     logic [XLEN-1:0] pmp_addr [0:PMP_ENTRY_COUNT-1];
+    pmp_decoded_entry_t pmp_decoded [0:PMP_ENTRY_COUNT-1];
     mem_req_t [MEM_READ_PORTS-1:0] req;
     mem_fault_t [MEM_READ_PORTS-1:0] fault;
     logic [MEM_READ_PORTS-1:0][XLEN-1:0] fault_addr;
     int tests_run, tests_failed;
 
     physical_memory_checker dut (
-        .pmp_cfg_i(pmp_cfg), .pmp_addr_i(pmp_addr), .mem_req_i(req),
+        .pmp_decoded_i(pmp_decoded), .mem_req_i(req),
         .fault_o(fault), .fault_addr_o(fault_addr)
     );
+
+    // The core receives these descriptors from csrfile registers.  Decode
+    // combinationally here so the checker test can set PMP CSRs directly.
+    always_comb begin
+        for (int i = 0; i < PMP_ENTRY_COUNT; i++) begin
+            if (i == 0)
+                pmp_decoded[i] = decode_pmp_entry(pmp_cfg[i], pmp_addr[i], '0);
+            else
+                pmp_decoded[i] = decode_pmp_entry(pmp_cfg[i], pmp_addr[i], pmp_addr[i-1]);
+        end
+    end
 
     function automatic logic [7:0] pmpcfg(
         input pmp_addr_matching_t mode, input logic r, input logic w, input logic x
@@ -101,6 +113,22 @@ module tb_pma_checker;
         #1;
         check("PMP denies an S-mode write without W permission", fault[0] == PMP_WRITE);
         check("PMP permits a concurrently issued read with R permission", fault[1] == FAULT_NONE);
+
+        clear_inputs();
+        pmp_cfg[0] = pmpcfg(PMP_NA4, 1'b1, 1'b1, 1'b0);
+        pmp_addr[0] = 64'h100 >> 2;
+        pmp_cfg[1] = pmpcfg(PMP_NAPOT, 1'b1, 1'b0, 1'b0);
+        pmp_addr[1] = 64'h1ff;
+        make_request(0, MWRITE, MWRITE, S_MODE, MEM_WORD, 64'h100, 64'h7000);
+        #1;
+        check("lowest-numbered overlapping PMP wins", fault[0] == FAULT_NONE);
+
+        clear_inputs();
+        pmp_cfg[0] = pmpcfg(PMP_NA4, 1'b1, 1'b1, 1'b0);
+        pmp_addr[0] = 64'h100 >> 2;
+        make_request(0, MREAD, MREAD, S_MODE, MEM_WORD, 64'h102, 64'h7004);
+        #1;
+        check("access partially outside selected PMP faults", fault[0] == PMP_READ);
 
         clear_inputs();
         pmp_cfg[0] = pmpcfg(PMP_NAPOT, 1'b1, 1'b0, 1'b0);

@@ -21,6 +21,7 @@ module tb_csrfile;
     logic [XLEN-1:0] mepc;
     logic [XLEN-1:0] mtvec;
     logic [XLEN-1:0] mstatus;
+    pmp_decoded_entry_t pmp_decoded [0:PMP_ENTRY_COUNT-1];
     logic csr_illegal;
     machine_privilege_t privilege;
     logic csr_flush;
@@ -52,6 +53,7 @@ module tb_csrfile;
         .stimecmp_o(),
         .pmp_cfg_o(),
         .pmp_addr_o(),
+        .pmp_decoded_o(pmp_decoded),
         .mip_o(),
         .mie_o(),
         .sip_o(),
@@ -250,6 +252,17 @@ module tb_csrfile;
 
         write_csr(MTVEC, 64'h0123_4567_0000_2002);
         read_csr("mtvec rejects reserved modes", MTVEC, 64'h0123_4567_0000_2000);
+
+        // PMP ranges are decoded into registered descriptors when their CSR
+        // state changes, rather than on every memory request.
+        write_csr(PMPADDR0, 64'h1ff);
+        write_csr(PMPCFG0, 64'h19); // entry 0: NAPOT, R=1
+        check("pmpcfg write creates an active decoded NAPOT entry",
+              pmp_decoded[0].active && pmp_decoded[0].readable
+              && pmp_decoded[0].bottom == '0 && pmp_decoded[0].top == 64'h1000);
+        write_csr(PMPADDR0, 64'h3ff);
+        check("pmpaddr write refreshes its decoded descriptor",
+              pmp_decoded[0].bottom == '0 && pmp_decoded[0].top == 64'h2000);
 
         // Only PMP_ENTRY_COUNT entries have storage.  Higher-numbered PMP
         // CSR slots are legal read-zero/write-ignore registers.

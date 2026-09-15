@@ -188,6 +188,61 @@ package riscv;
         PMP_NAPOT = 2'b11
     } pmp_addr_matching_t;
 
+    // PMP entries are decoded when their CSRs change.  The request-side
+    // checker therefore avoids mode decode, NAPOT trailing-one detection, and
+    // variable shifts on every memory access.
+    typedef struct packed {
+        logic                     active;
+        logic                     locked;
+        logic                     readable;
+        logic                     writable;
+        logic                     executable;
+        logic [PHYS_ADDR_WIDTH:0] bottom;
+        logic [PHYS_ADDR_WIDTH:0] top;
+    } pmp_decoded_entry_t;
+
+    function automatic pmp_decoded_entry_t decode_pmp_entry(
+        input logic [7:0]      cfg,
+        input logic [XLEN-1:0] addr,
+        input logic [XLEN-1:0] previous_addr
+    );
+        pmp_decoded_entry_t entry;
+        int trailing_ones;
+        begin
+            entry = '0;
+            entry.locked = cfg[PMPCFG_L_IDX];
+            entry.readable = cfg[PMPCFG_R_IDX];
+            entry.writable = cfg[PMPCFG_W_IDX];
+            entry.executable = cfg[PMPCFG_X_IDX];
+            case (pmp_addr_matching_t'(cfg[PMPCFG_A_MSB:PMPCFG_A_LSB]))
+                PMP_TOR: begin
+                    entry.bottom = {1'b0, previous_addr[PMP_ADDR_WIDTH-1:0], 2'b00};
+                    entry.top = {1'b0, addr[PMP_ADDR_WIDTH-1:0], 2'b00};
+                    entry.active = entry.top > entry.bottom;
+                end
+                PMP_NA4: begin
+                    entry.bottom = {1'b0, addr[PMP_ADDR_WIDTH-1:0], 2'b00};
+                    entry.top = entry.bottom + (PHYS_ADDR_WIDTH + 1)'(3'd4);
+                    entry.active = 1'b1;
+                end
+                PMP_NAPOT: begin
+                    trailing_ones = 0;
+                    for (int k = 0; k < PMP_ADDR_WIDTH - 1; k++) begin
+                        if (addr[k] && trailing_ones == k)
+                            trailing_ones = trailing_ones + 1;
+                    end
+                    entry.bottom = ({3'b000, addr[PMP_ADDR_WIDTH-1:0]} >> (trailing_ones + 1))
+                                 << (trailing_ones + 3);
+                    entry.top = entry.bottom
+                              + ((PHYS_ADDR_WIDTH + 1)'(1'b1) << (trailing_ones + 3));
+                    entry.active = 1'b1;
+                end
+                default: ; // PMP_OFF and reset-state unknowns are inactive.
+            endcase
+            decode_pmp_entry = entry;
+        end
+    endfunction
+
     // ==============
     // mstatus fields
     // ==============
