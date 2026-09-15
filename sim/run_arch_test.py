@@ -196,6 +196,7 @@ def main() -> int:
         help="Simulation backend (default: verilator; iverilog is a compatibility fallback)",
     )
     parser.add_argument("--rebuild", action="store_true", help="Rebuild the cached Verilator executable")
+    parser.add_argument("--benchmark", action="store_true", help="Enable benchmark mailbox reporting in tb_arch_test")
     parser.add_argument("elf", type=Path)
     args = parser.parse_args()
 
@@ -261,6 +262,7 @@ def main() -> int:
                 *([str(simv)] if args.simulator == "iverilog" else []),
                 f"+mem={memory_records}",
                 f"+max_cycles={args.max_cycles}",
+                *(["+benchmark"] if args.benchmark else []),
             ],
             cwd=repo_root,
         )

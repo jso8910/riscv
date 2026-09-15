@@ -23,7 +23,7 @@ ARCH_TEST_EXTENSIONS ?= I,Sm,Zicsr,Zicntr,Zihpm,U,S,Sstc,Sv39,Svade,Svbare
 ARCH_TEST_FAST ?= True
 ARCH_TEST_TIMEOUT ?= 60
 
-.PHONY: all core test test-all test-arch test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs clean
+.PHONY: all core test test-all test-arch test-alu test-next-pc test-immediate-gen test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs bench-coremark bench-coremark-run bench-embench bench-embench-run clean
 
 all: core
 
@@ -124,6 +124,20 @@ test-control-helpers: $(BUILD_DIR)
 
 test-pipeline-regs: $(BUILD_DIR)
 	$(call RUN_TEST,tb_pipeline_regs,sim/tb_pipeline_regs.f)
+
+# Bare-metal benchmark flows.  CoreMark and Embench sources are pinned as
+# submodules; run `git submodule update --init --recursive` after cloning.
+bench-coremark:
+	$(MAKE) -C bench/coremark all
+
+bench-coremark-run:
+	$(MAKE) -C bench/coremark run
+
+bench-embench:
+	bench/build_embench.sh
+
+bench-embench-run:
+	bench/run_embench.sh
 
 clean:
 	rm -rf $(BUILD_DIR)

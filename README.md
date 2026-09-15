@@ -35,3 +35,50 @@ its highest closing period and frequency under `build/genus/max_frequency/`.
 That directory includes QoR, area, power, gate, timing-lint, and error reports,
 an unconstrained-path check, plus the 100 worst setup and hold timing paths by
 default.
+
+## CoreMark and Embench
+
+The CoreMark and Embench-IoT sources are pinned in `third_party/` as Git
+submodules. Initialize them after cloning:
+
+```sh
+git submodule update --init --recursive
+```
+
+The ports target the implemented ISA, `rv64i_zicsr_zicntr` with the `lp64`
+ABI. They deliberately do not enable the RISC-V M, F, D, or C extensions.
+Both share a bare-metal mailbox at the top of the testbench RAM; it reports
+`mcycle` and `minstret` around each benchmark's timed region.
+
+CoreMark configuration begins with literal copies of upstream
+`barebones/core_portme.c`, `core_portme.h`, and `ee_printf.c`; Embench begins
+with its `riscv32/rv32wallyverilog` board-support, linker, and startup
+templates. The copied files preserve their upstream license headers and only
+the target-specific sections are adapted. The small `bench/platform/` layer is
+project-owned glue for the memory mailbox and RV64I-only compiler helpers.
+
+Build and run CoreMark (the default is a short, fixed 10-iteration simulation
+run, not an official ten-second score):
+
+```sh
+make bench-coremark
+make bench-coremark-run
+```
+
+Set `ITERATIONS` and `CLOCK_HZ` when building if needed, for example
+`make bench-coremark ITERATIONS=100 CLOCK_HZ=1000000`. The runner prints JSON
+including cycle and instruction deltas; CoreMark/MHz is
+`iterations * 1000000 / cycles`.
+
+Embench requires SCons in addition to the RISC-V GCC toolchain and Verilator.
+Build the suite, then collect absolute cycle-counter-derived timings:
+
+```sh
+make bench-embench
+make bench-embench-run
+```
+
+`GSF`, `BUILD_DIR`, `CPU_MHZ`, and `MAX_CYCLES` can be supplied as environment
+variables for the Embench scripts. At the default `GSF=1`, several workloads
+need more than the default two-million-cycle architectural-test limit; the
+benchmark runner defaults to twenty million cycles.

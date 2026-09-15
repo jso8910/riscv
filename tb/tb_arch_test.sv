@@ -3,7 +3,9 @@
 import riscv::*;
 
 module tb_arch_test;
-    localparam logic [XLEN-1:0] TOHOST_ADDR = 32'h001f_fff0;
+    localparam logic [XLEN-1:0] TOHOST_ADDR = 64'h0000_0000_001f_fff0;
+    localparam logic [XLEN-1:0] BENCHMARK_MAILBOX_ADDR = 64'h0000_0000_001f_ffb0;
+    localparam logic [XLEN-1:0] BENCHMARK_MAILBOX_MAGIC = 64'h4245_4e43_484d_4152;
     localparam logic [31:0] HTIF_CONSOLE_WRITE = 32'h0101_0000;
     localparam int DEFAULT_MAX_CYCLES = 2_000_000;
     localparam int TRACE_DEPTH = 32;
@@ -17,6 +19,7 @@ module tb_arch_test;
     bit finished;
     bit debug;
     bit trace_memory;
+    bit benchmark_mode;
     logic [63:0] previous_tohost;
 
     // Keep the last few instructions so failures and timeouts have context even
@@ -223,6 +226,7 @@ module tb_arch_test;
         finished = 1'b0;
         debug = $test$plusargs("debug") || $test$plusargs("trace");
         trace_memory = $test$plusargs("trace_memory") || debug;
+        benchmark_mode = $test$plusargs("benchmark");
         previous_tohost = '0;
         history_head = 0;
         history_count = 0;
@@ -247,12 +251,23 @@ module tb_arch_test;
             #1;
             tohost = read_tohost();
             if (tohost != previous_tohost) begin
-                if (tohost != 64'd0 || debug)
+                if ((tohost != 64'd0 && tohost[63:32] != HTIF_CONSOLE_WRITE) || debug)
                     $display("ARCH-TRACE: tohost changed cycle=%0d old=0x%016h new=0x%016h",
                              cycle, previous_tohost, tohost);
                 previous_tohost = tohost;
             end
             if (tohost == 64'd1) begin
+                if (benchmark_mode) begin
+                    if (read_memory64(BENCHMARK_MAILBOX_ADDR) != BENCHMARK_MAILBOX_MAGIC) begin
+                        $fatal(1, "Benchmark completed without a valid mailbox at 0x%016h", BENCHMARK_MAILBOX_ADDR);
+                    end
+                    $display("BENCHMARK-RESULT: status=0x%016h start_cycle=0x%016h stop_cycle=0x%016h start_instret=0x%016h stop_instret=0x%016h",
+                             read_memory64(BENCHMARK_MAILBOX_ADDR + 64'd40),
+                             read_memory64(BENCHMARK_MAILBOX_ADDR + 64'd8),
+                             read_memory64(BENCHMARK_MAILBOX_ADDR + 64'd16),
+                             read_memory64(BENCHMARK_MAILBOX_ADDR + 64'd24),
+                             read_memory64(BENCHMARK_MAILBOX_ADDR + 64'd32));
+                end
                 $display("ARCH-TRACE: TOHOST PASS 0x%016h cycle %0d", tohost, cycle);
                 finished = 1'b1;
                 $finish;
