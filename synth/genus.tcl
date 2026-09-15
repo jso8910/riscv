@@ -9,15 +9,20 @@
 # CLOCK_PERIOD_NS, or CONSTRAINTS_FILE); it is intentionally gitignored so
 # PDK-specific paths remain local.
 
-set script_dir [file dirname [file normalize [info script]]]
-# Older Genus releases invoked with "-files synth/genus.tcl" can report
-# [info script] as only "genus.tcl".  Then script_dir is the project root,
-# so recover synth/ before resolving local configuration and constraints.
-if {![file isfile [file join $script_dir constraints.sdc]] &&
-    [file isfile [file join $script_dir synth constraints.sdc]]} {
-    set script_dir [file join $script_dir synth]
+if {[info exists ::env(GENUS_PROJECT_ROOT)]} {
+    set root_dir [file normalize $::env(GENUS_PROJECT_ROOT)]
+    set script_dir [file join $root_dir synth]
+} else {
+    set script_dir [file dirname [file normalize [info script]]]
+    # Older Genus releases invoked with "-files synth/genus.tcl" can report
+    # [info script] as only "genus.tcl".  Then script_dir is the project root,
+    # so recover synth/ before resolving local configuration and constraints.
+    if {![file isfile [file join $script_dir constraints.sdc]] &&
+        [file isfile [file join $script_dir synth constraints.sdc]]} {
+        set script_dir [file join $script_dir synth]
+    }
+    set root_dir [file dirname $script_dir]
 }
-set root_dir   [file dirname $script_dir]
 
 set TOP               riscv_core
 set CLOCK_PERIOD_NS   1.000

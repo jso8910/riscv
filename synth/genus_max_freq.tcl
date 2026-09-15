@@ -10,14 +10,19 @@
 #   export GENUS_LIB_FILES="/path/to/standard_cells_ss.lib"
 #   genus -files synth/genus_max_freq.tcl |& tee build/genus/max_freq.log
 
-set script_dir [file dirname [file normalize [info script]]]
-# Older Genus "-files" invocations can lose the synth/ component from
-# [info script]; recover it before looking up the local configuration.
-if {![file isfile [file join $script_dir constraints.sdc]] &&
-    [file isfile [file join $script_dir synth constraints.sdc]]} {
-    set script_dir [file join $script_dir synth]
+if {[info exists ::env(GENUS_PROJECT_ROOT)]} {
+    set root_dir [file normalize $::env(GENUS_PROJECT_ROOT)]
+    set script_dir [file join $root_dir synth]
+} else {
+    set script_dir [file dirname [file normalize [info script]]]
+    # Older Genus "-files" invocations can lose the synth/ component from
+    # [info script]; recover it before looking up the local configuration.
+    if {![file isfile [file join $script_dir constraints.sdc]] &&
+        [file isfile [file join $script_dir synth constraints.sdc]]} {
+        set script_dir [file join $script_dir synth]
+    }
+    set root_dir [file dirname $script_dir]
 }
-set root_dir   [file dirname $script_dir]
 
 set TOP                    riscv_core
 set CONSTRAINTS_FILE       [file join $script_dir constraints.sdc]
