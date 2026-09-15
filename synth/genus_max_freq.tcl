@@ -90,9 +90,9 @@ set search_report [file join $results_root search_${run_tag}.rpt]
 set search_fh [open $search_report w]
 puts $search_fh "# period_ns wns_ns setup_closed"
 
-set_attribute library         $LIB_FILES /
-set_attribute hdl_search_path [list [file join $root_dir rtl]] /
-set_attribute information_level 5 /
+set_db library         $LIB_FILES
+set_db hdl_search_path [list [file join $root_dir rtl]]
+set_db information_level 5
 
 # Return the worst setup slack after mapping and optimization at a candidate
 # period.  get_timing_paths is ordered worst-first, so its first path is WNS.
@@ -112,11 +112,11 @@ proc run_setup_trial {period_ns rtl_sources top constraints_file search_fh} {
     syn_opt
 
     set worst_path [get_timing_paths -late -max_paths 1]
-    if {[sizeof_collection $worst_path] == 0} {
+    set wns_values [get_db $worst_path .slack]
+    if {[llength $wns_values] == 0} {
         error "No setup timing paths were found at ${period_ns} ns. Check synth/constraints.sdc."
     }
-    set wns [get_attribute $worst_path slack]
-    set wns [lindex $wns 0]
+    set wns [lindex $wns_values 0]
     set closed [expr {$wns >= 0.0}]
     puts $search_fh [format "%.6f %.6f %s" $period_ns $wns $closed]
     flush $search_fh

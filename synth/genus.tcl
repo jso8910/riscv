@@ -86,9 +86,9 @@ file mkdir $out_dir
 
 # Full library paths make the flow independent of a particular PDK directory
 # layout.  The HDL search path permits package includes from the RTL directory.
-set_attribute library         $LIB_FILES /
-set_attribute hdl_search_path [list [file join $root_dir rtl]] /
-set_attribute information_level 5 /
+set_db library         $LIB_FILES
+set_db hdl_search_path [list [file join $root_dir rtl]]
+set_db information_level 5
 
 read_hdl -sv $rtl_sources
 elaborate $TOP
