@@ -33,7 +33,10 @@ module next_pc_unit (
             SRC_ALU : pc_branch = alu_res_i;
             SRC_MEPC : pc_branch = mepc_i;
             SRC_SEPC : pc_branch = sepc_i;
-            default : $fatal(1);
+            default : begin
+                pc_branch = alu_res_i;
+                $fatal(1);
+            end
         endcase
         branch_taken = 1'b0;
         address_misaligned_o = '0;
