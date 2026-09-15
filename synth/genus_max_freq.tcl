@@ -101,10 +101,15 @@ set_db information_level 5
 
 # Return the worst setup slack after mapping and optimization at a candidate
 # period.  get_timing_paths is ordered worst-first, so its first path is WNS.
+set trial_design_loaded 0
 proc run_setup_trial {period_ns rtl_sources top constraints_file search_fh} {
-    global CLOCK_PERIOD_NS
+    global CLOCK_PERIOD_NS trial_design_loaded
 
-    reset_design
+    # This Common UI release rejects reset_design before the first elaborate.
+    # Later trials reset the prior implementation before rereading the RTL.
+    if {$trial_design_loaded} {
+        reset_design
+    }
     read_hdl -sv $rtl_sources
     elaborate $top
     check_design -unresolved
@@ -126,6 +131,7 @@ proc run_setup_trial {period_ns rtl_sources top constraints_file search_fh} {
     puts $search_fh [format "%.6f %.6f %s" $period_ns $wns $closed]
     flush $search_fh
     puts [format "INFO: trial period %.6f ns: WNS %.6f ns (%s)" $period_ns $wns [expr {$closed ? "closed" : "failed"}]]
+    set trial_design_loaded 1
     return $wns
 }
 
