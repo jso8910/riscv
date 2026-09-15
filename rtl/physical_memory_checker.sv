@@ -2,8 +2,8 @@ import riscv::*;
 
 module physical_memory_checker (
     // input machine_privilege_t  current_privilege_i,
-    input logic [7:0]          pmp_cfg_i [0:63],
-    input logic [XLEN-1:0]     pmp_addr_i [0:63],
+    input logic [7:0]          pmp_cfg_i [0:PMP_ENTRY_COUNT-1],
+    input logic [XLEN-1:0]     pmp_addr_i [0:PMP_ENTRY_COUNT-1],
     input mem_req_t [MEM_READ_PORTS-1:0]      mem_req_i,
     output mem_fault_t [MEM_READ_PORTS-1:0]   fault_o,
     output logic [MEM_READ_PORTS-1:0][XLEN-1:0] fault_addr_o
@@ -17,7 +17,9 @@ module physical_memory_checker (
           bypass_permissions [0:1];
     logic [PHYS_ADDR_WIDTH:0] bottom_of_range [0:1], top_of_range [0:1],
                               pmp_range_btm [0:1], pmp_range_top [0:1];
-    logic [5:0] matching_pmp_idx [0:1], n_trailing_1s [0:1];
+    localparam int PMP_INDEX_WIDTH = (PMP_ENTRY_COUNT > 1) ? $clog2(PMP_ENTRY_COUNT) : 1;
+    logic [PMP_INDEX_WIDTH-1:0] matching_pmp_idx [0:1];
+    logic [5:0] n_trailing_1s [0:1];
 
     logic [3:0] access_width [0:1];
 
@@ -132,7 +134,7 @@ module physical_memory_checker (
                     access_addresses[i][j] = 0;
                 pmp_range_btm[i] = 0;
                 pmp_range_top[i] = 0;
-                matching_pmp_idx[i] = 63;
+                matching_pmp_idx[i] = '0;
                 pmp_matched[i] = 0;
                 bottom_of_range[i] = 0;
                 top_of_range[i] = 0;
@@ -240,7 +242,10 @@ module physical_memory_checker (
                     // =========
                     // PMP logic
                     // =========
-                    for (int j = 63; j >= 0; j--) begin
+                    // Search in descending order so later matches overwrite
+                    // earlier ones and the final result is the lowest-numbered
+                    // matching PMP entry, as required by PMP priority rules.
+                    for (int j = PMP_ENTRY_COUNT - 1; j >= 0; j--) begin
                         case (pmp_addr_matching_t'(pmp_cfg_i[j][PMPCFG_A_MSB : PMPCFG_A_LSB]))
                             PMP_OFF : begin
                                 // 0..0 doesn't match
@@ -295,7 +300,7 @@ module physical_memory_checker (
                         for (int k = 0; k < 8; k++) begin
                             if (k < int'(access_width[i])) begin
                                 if (bottom_of_range[i] <= {1'b0, access_addresses[i][k][PHYS_ADDR_WIDTH-1:0]} && {1'b0, access_addresses[i][k][PHYS_ADDR_WIDTH-1:0]} < top_of_range[i]) begin
-                                    matching_pmp_idx[i] = j[5:0];
+                                    matching_pmp_idx[i] = j[PMP_INDEX_WIDTH-1:0];
                                     pmp_matched[i] = 1;
                                     pmp_range_btm[i] = bottom_of_range[i];
                                     pmp_range_top[i] = top_of_range[i];

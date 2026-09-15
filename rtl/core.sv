@@ -33,8 +33,8 @@ module riscv_core (
           load_page_fault, store_page_fault, mem_valid;
     logic [XLEN-1:0] mem_store_data;
 
-    logic [7:0]      pmp_cfg [0:63];
-    logic [XLEN-1:0] pmp_addr [0:63];
+    logic [7:0]      pmp_cfg [0:PMP_ENTRY_COUNT-1];
+    logic [XLEN-1:0] pmp_addr [0:PMP_ENTRY_COUNT-1];
 
     mem_fault_t [MEM_READ_PORTS-1:0] mem_fault, mem_fault_q;
     mem_fault_t inst_mem_fault_q;

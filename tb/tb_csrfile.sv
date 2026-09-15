@@ -251,6 +251,14 @@ module tb_csrfile;
         write_csr(MTVEC, 64'h0123_4567_0000_2002);
         read_csr("mtvec rejects reserved modes", MTVEC, 64'h0123_4567_0000_2000);
 
+        // Only PMP_ENTRY_COUNT entries have storage.  Higher-numbered PMP
+        // CSR slots are legal read-zero/write-ignore registers.
+        write_csr(PMPADDR0 + 12'(PMP_ENTRY_COUNT), 64'h0123_4567_89ab_cdef);
+        read_csr("unimplemented pmpaddr reads as zero", PMPADDR0 + 12'(PMP_ENTRY_COUNT), '0);
+        write_csr(PMPCFG0 + 12'(2 * ((PMP_ENTRY_COUNT + 7) / 8)), '1);
+        read_csr("unimplemented pmpcfg reads as zero",
+                 PMPCFG0 + 12'(2 * ((PMP_ENTRY_COUNT + 7) / 8)), '0);
+
         write_csr(MCYCLE, 64'h0123_4567_89ab_cdef);
         read_csr("mcycle is writable", MCYCLE, 64'h0123_4567_89ab_cdef);
 

@@ -162,7 +162,10 @@ package riscv;
     // ==========================
     // Physical memory protection
     // ==========================
-    localparam int PMP_ENTRY_COUNT = 64;
+    // Number of physical PMP entries implemented by this core (1..64).  CSR
+    // slots for higher-numbered entries remain architecturally visible, but
+    // read as zero and ignore writes (see csrfile.sv).
+    localparam int PMP_ENTRY_COUNT = 8;
     localparam int PMA_ENTRY_COUNT = 4;
     localparam int PMP_ADDR_WIDTH = PHYS_ADDR_WIDTH - 2;
 

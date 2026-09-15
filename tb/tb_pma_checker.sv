@@ -3,8 +3,8 @@
 import riscv::*;
 
 module tb_pma_checker;
-    logic [7:0] pmp_cfg [0:63];
-    logic [XLEN-1:0] pmp_addr [0:63];
+    logic [7:0] pmp_cfg [0:PMP_ENTRY_COUNT-1];
+    logic [XLEN-1:0] pmp_addr [0:PMP_ENTRY_COUNT-1];
     mem_req_t [MEM_READ_PORTS-1:0] req;
     mem_fault_t [MEM_READ_PORTS-1:0] fault;
     logic [MEM_READ_PORTS-1:0][XLEN-1:0] fault_addr;

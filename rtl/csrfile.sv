@@ -24,8 +24,8 @@ module csrfile (
     output logic [XLEN-1:0]      stvec_o,
     output logic [XLEN-1:0]      mstatus_o,
     output logic [XLEN-1:0]      stimecmp_o,
-    output logic [7:0]           pmp_cfg_o [0:63],
-    output logic [XLEN-1:0]      pmp_addr_o [0:63],
+    output logic [7:0]           pmp_cfg_o [0:PMP_ENTRY_COUNT-1],
+    output logic [XLEN-1:0]      pmp_addr_o [0:PMP_ENTRY_COUNT-1],
     output logic [XLEN-1:0]      mip_o,
     output logic [XLEN-1:0]      mie_o,
     output logic [XLEN-1:0]      sip_o,
@@ -38,6 +38,7 @@ module csrfile (
     output logic                 csr_flush_o
 );
     localparam int PMP_ENTRIES_PER_CFG_CSR = XLEN / 8;
+    localparam int PMP_INDEX_WIDTH = (PMP_ENTRY_COUNT > 1) ? $clog2(PMP_ENTRY_COUNT) : 1;
 
     // CSR register definitions
     logic [XLEN-1:0] mepc, mstatus, mtvec, mip, mie, mscratch, mcause,
@@ -48,8 +49,8 @@ module csrfile (
     // physical memory protection CSRs
     // Separate arrays avoid an Icarus elaboration failure on variable indexes
     // into an unpacked array of packed structs.
-    logic [7:0]      pmp_cfg [0:63];
-    logic [XLEN-1:0] pmp_addr [0:63];
+    logic [7:0]      pmp_cfg [0:PMP_ENTRY_COUNT-1];
+    logic [XLEN-1:0] pmp_addr [0:PMP_ENTRY_COUNT-1];
 
     // Some internal signals
     logic            csr_exists;
@@ -172,10 +173,12 @@ module csrfile (
 
         if (csr_read_addr_i >= PMPCFG0 && csr_read_addr_i <= PMPCFG15 && !csr_read_addr_i[0]) begin
             for (int i = 0; i < PMP_ENTRIES_PER_CFG_CSR; i++) begin
-                csr_val_o[8*i +: 8] = pmp_cfg[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i];
+                if (PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i < PMP_ENTRY_COUNT)
+                    csr_val_o[8*i +: 8] = pmp_cfg[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i];
             end
         end else if (csr_read_addr_i >= PMPADDR0 && csr_read_addr_i <= PMPADDR63) begin
-            csr_val_o = pmp_addr[pmpaddr_index];
+            if (int'(pmpaddr_index) < PMP_ENTRY_COUNT)
+                csr_val_o = pmp_addr[pmpaddr_index[PMP_INDEX_WIDTH-1:0]];
         end else if ((csr_read_addr_i >= MHPMCOUNTER3 && csr_read_addr_i <= MHPMCOUNTER31)
                         || (csr_read_addr_i >= MHPMEVENT3 && csr_read_addr_i <= MHPMEVENT31)
                         || (csr_read_addr_i >= HPMCOUNTER3 && csr_read_addr_i <= HPMCOUNTER31)) begin
@@ -275,7 +278,7 @@ module csrfile (
             menvcfg <= '0;
             mseccfg <= '0;
             senvcfg <= '0;
-            for (int i = 0; i <= 63; i++) begin
+            for (int i = 0; i < PMP_ENTRY_COUNT; i++) begin
                 pmp_cfg[i] <= '0;
                 pmp_addr[i] <= '0;
             end
@@ -355,7 +358,8 @@ module csrfile (
             end else if (commit_i && ctrl_i.csr_write && !csr_illegal_inst_o) begin
                 if (ctrl_i.csr_addr >= PMPCFG0 && ctrl_i.csr_addr <= PMPCFG15 && !ctrl_i.csr_addr[0]) begin
                     for (int i = 0; i < PMP_ENTRIES_PER_CFG_CSR; i++) begin
-                        if (!pmp_cfg[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i][PMPCFG_L_IDX]) begin
+                        if (PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i < PMP_ENTRY_COUNT &&
+                            !pmp_cfg[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i][PMPCFG_L_IDX]) begin
                             pmp_cfg[PMP_ENTRIES_PER_CFG_CSR * int'(pmpcfg_index) + i] <=
                                 csr_data_i[8*i +: 8]
                                 & ((csr_data_i[8*i + PMPCFG_W_IDX]
@@ -363,12 +367,15 @@ module csrfile (
                         end
                     end
                 end else if (ctrl_i.csr_addr >= PMPADDR0 && ctrl_i.csr_addr <= PMPADDR63) begin
-                    if (!pmp_cfg[pmpaddr_index][PMPCFG_L_IDX]) begin
-                        if (pmpaddr_index == 6'd63) begin
-                            pmp_addr[pmpaddr_index] <= {{(XLEN - PMP_ADDR_WIDTH){1'b0}}, csr_data_i[PMP_ADDR_WIDTH-1:0]};
-                        end else if (!pmp_cfg[pmpaddr_index + 1'b1][PMPCFG_L_IDX]
-                                     || pmp_addr_matching_t'(pmp_cfg[pmpaddr_index + 1'b1][PMPCFG_A_MSB:PMPCFG_A_LSB]) != PMP_TOR) begin
-                            pmp_addr[pmpaddr_index] <= {{(XLEN - PMP_ADDR_WIDTH){1'b0}}, csr_data_i[PMP_ADDR_WIDTH-1:0]};
+                    // The remaining architectural PMPADDR CSR slots are
+                    // implemented as read-zero/write-ignore.
+                    if (int'(pmpaddr_index) < PMP_ENTRY_COUNT &&
+                        !pmp_cfg[pmpaddr_index[PMP_INDEX_WIDTH-1:0]][PMPCFG_L_IDX]) begin
+                        if (int'(pmpaddr_index) == PMP_ENTRY_COUNT - 1) begin
+                            pmp_addr[pmpaddr_index[PMP_INDEX_WIDTH-1:0]] <= {{(XLEN - PMP_ADDR_WIDTH){1'b0}}, csr_data_i[PMP_ADDR_WIDTH-1:0]};
+                        end else if (!pmp_cfg[pmpaddr_index[PMP_INDEX_WIDTH-1:0] + 1'b1][PMPCFG_L_IDX]
+                                     || pmp_addr_matching_t'(pmp_cfg[pmpaddr_index[PMP_INDEX_WIDTH-1:0] + 1'b1][PMPCFG_A_MSB:PMPCFG_A_LSB]) != PMP_TOR) begin
+                            pmp_addr[pmpaddr_index[PMP_INDEX_WIDTH-1:0]] <= {{(XLEN - PMP_ADDR_WIDTH){1'b0}}, csr_data_i[PMP_ADDR_WIDTH-1:0]};
                         end
                     end
                 end else if ((ctrl_i.csr_addr >= MHPMCOUNTER3 && ctrl_i.csr_addr <= MHPMCOUNTER31)
