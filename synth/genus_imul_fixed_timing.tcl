@@ -87,16 +87,15 @@ syn_opt
 # with the repository's older Genus release, which does not accept -late.
 report_qor                                              > [file join $out_dir qor_timing.rpt]
 report_timing -max_paths $MAX_TIMING_PATHS              > [file join $out_dir timing_all_reg_to_reg.rpt]
-# Genus 18.14 flattens the RTL instances, but leaves their names as prefixes
-# on mapped cells (for example, u_imul_cycle3_add_*).  Select those mapped
-# cells instead of looking up the removed hierarchy instance itself.
-report_timing -through [get_cells *u_imul_cycle1*] -max_paths 20 > [file join $out_dir timing_cycle1.rpt]
-report_timing -through [get_cells *u_imul_cycle2*] -max_paths 20 > [file join $out_dir timing_cycle2.rpt]
-report_timing -through [get_cells *u_imul_cycle3*] -max_paths 20 > [file join $out_dir timing_cycle3.rpt]
+# Scope reports by their capture-register bank, rather than internal instance
+# names.  These are the actual pipeline boundaries and remain named after
+# Genus flattens the combinational hierarchy.
+report_timing -to [get_cells stage1_q_reg*] -max_paths 20 > [file join $out_dir timing_cycle1.rpt]
+report_timing -to [get_cells stage2_q_reg*] -max_paths 20 > [file join $out_dir timing_cycle2.rpt]
+report_timing -to [get_cells stage3_q_reg*] -max_paths 20 > [file join $out_dir timing_cycle3.rpt]
 report_area                                             > [file join $out_dir area.rpt]
 report_gates                                            > [file join $out_dir gates.rpt]
 report_power                                            > [file join $out_dir power.rpt]
-report_msg -error                                       > [file join $out_dir errors.rpt]
 
 write_hdl > [file join $out_dir ${TOP}_mapped.v]
 write_sdc > [file join $out_dir ${TOP}_mapped.sdc]

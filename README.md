@@ -32,9 +32,8 @@ genus -files synth/genus_max_freq.tcl |& tee build/genus/max_freq.log
 It searches between 0.100 ns and 10.000 ns (override these bounds in the local
 Genus config), and leaves the final implementation in a directory named for
 its highest closing period and frequency under `build/genus/max_frequency/`.
-That directory includes QoR, area, power, gate, timing-lint, and error reports,
-an unconstrained-path check, plus the 100 worst setup and hold timing paths by
-default.
+That directory includes QoR, area, power, gate, and timing-intent reports,
+plus the 100 worst setup timing paths by default.
 
 ### Integer multiplier timing
 
@@ -67,6 +66,26 @@ synth/run_genus_imul_fixed_timing.sh
 
 Its reports are written to `build/genus/imul_fixed_timing/`; this is the
 preferred flow while iterating on the multiplier RTL.
+
+### Individual multiplier-stage frequency searches
+
+To measure the maximum closing frequency of each existing multiplier pipeline
+stage independently, run these three shell scripts in parallel if licenses and
+machine capacity permit:
+
+```sh
+synth/run_genus_imul_cycle1_max_freq.sh &
+synth/run_genus_imul_cycle2_max_freq.sh &
+synth/run_genus_imul_cycle3_max_freq.sh &
+wait
+```
+
+They share one Tcl implementation but use separate tops with flop banks on
+only the selected stage's inputs and outputs.  Every invocation writes to a
+new `build/genus/imul_stage_max_frequency/<stage>/run_<timestamp>_<pid>/`
+directory and a unique log file, so parallel or repeated runs do not overwrite
+one another.  The search bounds use the same `SEARCH_*` configuration values
+as the core max-frequency flow.
 
 ## CoreMark and Embench
 

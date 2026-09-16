@@ -202,14 +202,13 @@ if {$final_wns < 0.0} {
 }
 
 report_qor                                      > [file join $out_dir qor.rpt]
-report_timing -late -max_paths $MAX_TIMING_PATHS > [file join $out_dir timing_setup_longest_paths.rpt]
-report_timing -early -max_paths $MAX_TIMING_PATHS > [file join $out_dir timing_hold_longest_paths.rpt]
-report_timing -lint                             > [file join $out_dir timing_lint.rpt]
+# Genus 18.14 Common UI reports the default late/setup analysis but does not
+# implement the newer -late, -early, or -lint report_timing options.
+report_timing -max_paths $MAX_TIMING_PATHS      > [file join $out_dir timing_setup_longest_paths.rpt]
 check_timing_intent                             > [file join $out_dir timing_intent.rpt]
 report_area                                     > [file join $out_dir area.rpt]
 report_power                                    > [file join $out_dir power.rpt]
 report_gates                                    > [file join $out_dir gates.rpt]
-report_msg -error                                > [file join $out_dir errors.rpt]
 write_hdl                                       > [file join $out_dir ${TOP}_mapped.v]
 write_sdc                                       > [file join $out_dir ${TOP}_mapped.sdc]
 write_design -innovus -base_name [file join $out_dir $TOP]
@@ -223,7 +222,6 @@ puts $summary_fh [format "Final setup WNS: %.6f ns" $final_wns]
 puts $summary_fh [format "Search resolution: %.6f ns" $SEARCH_RESOLUTION_NS]
 puts $summary_fh "Trial log: $search_report"
 puts $summary_fh "Longest setup paths: timing_setup_longest_paths.rpt"
-puts $summary_fh "Longest hold paths: timing_hold_longest_paths.rpt"
 puts $summary_fh "Timing intent checks: timing_intent.rpt"
 close $summary_fh
 
