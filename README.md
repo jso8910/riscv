@@ -87,6 +87,15 @@ directory and a unique log file, so parallel or repeated runs do not overwrite
 one another.  The search bounds use the same `SEARCH_*` configuration values
 as the core max-frequency flow.
 
+While those searches run, change to `build/genus/imul_stage_logs/` and run:
+
+```sh
+../../../synth/watch_imul_stage_logs.sh
+```
+
+It first prints all completed trial lines already in the logs, then prints each
+new completed trial as it arrives.  Press `Ctrl-C` to stop watching.
+
 ## CoreMark and Embench
 
 The CoreMark and Embench-IoT sources are pinned in `third_party/` as Git
