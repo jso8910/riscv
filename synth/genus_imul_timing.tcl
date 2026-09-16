@@ -76,10 +76,6 @@ file mkdir $out_dir
 set_db library         $LIB_FILES
 set_db hdl_search_path [list [file join $root_dir rtl]]
 set_db information_level 5
-# Preserve these logical stage boundaries so the final per-stage reports can
-# select u_imul_cycle{1,2,3} after synthesis rather than finding them
-# flattened away.
-set_db hdl_preserve_hierarchy true
 
 # Elaborate once, then restore this pre-SDC database for every candidate.  A
 # trial is consequently optimized for its own period rather than inheriting a
@@ -180,9 +176,11 @@ if {$final_wns < 0.0} {
 
 report_qor                                              > [file join $out_dir qor_timing.rpt]
 report_timing -max_paths $MAX_TIMING_PATHS              > [file join $out_dir timing_all_reg_to_reg.rpt]
-report_timing -through [get_cells u_imul_cycle1] -max_paths 20 > [file join $out_dir timing_cycle1.rpt]
-report_timing -through [get_cells u_imul_cycle2] -max_paths 20 > [file join $out_dir timing_cycle2.rpt]
-report_timing -through [get_cells u_imul_cycle3] -max_paths 20 > [file join $out_dir timing_cycle3.rpt]
+# Genus 18.14 flattens the RTL instances, but keeps their names as prefixes on
+# mapped cells.  Select those cells rather than the removed hierarchy instance.
+report_timing -through [get_cells *u_imul_cycle1*] -max_paths 20 > [file join $out_dir timing_cycle1.rpt]
+report_timing -through [get_cells *u_imul_cycle2*] -max_paths 20 > [file join $out_dir timing_cycle2.rpt]
+report_timing -through [get_cells *u_imul_cycle3*] -max_paths 20 > [file join $out_dir timing_cycle3.rpt]
 report_area                                             > [file join $out_dir area.rpt]
 report_gates                                            > [file join $out_dir gates.rpt]
 report_msg -error                                       > [file join $out_dir errors.rpt]
