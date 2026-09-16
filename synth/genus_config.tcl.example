@@ -15,3 +15,6 @@ set LIB_FILES [list \
 # set SEARCH_MAX_PERIOD_NS 10.000
 # set SEARCH_RESOLUTION_NS 0.005
 # set MAX_TIMING_PATHS 100
+
+# Multiplier-only fixed-period timing flow (genus_imul_fixed_timing.tcl):
+# set IMUL_CLOCK_PERIOD_NS 1.000

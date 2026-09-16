@@ -58,6 +58,16 @@ paths; compare their data-arrival times or slacks to judge balance.
 `timing_all_reg_to_reg.rpt` contains the 100 overall longest paths, including
 the endpoint bits and mapped cells on each path.
 
+For a single implementation pass rather than a frequency search, set
+`IMUL_CLOCK_PERIOD_NS` in `synth/genus_config.tcl` and run:
+
+```sh
+synth/run_genus_imul_fixed_timing.sh
+```
+
+Its reports are written to `build/genus/imul_fixed_timing/`; this is the
+preferred flow while iterating on the multiplier RTL.
+
 ## CoreMark and Embench
 
 The CoreMark and Embench-IoT sources are pinned in `third_party/` as Git
