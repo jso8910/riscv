@@ -123,7 +123,10 @@ proc run_setup_trial {period_ns constraints_file search_fh} {
     syn_opt
 
     set timing_report [file join $out_dir trial_setup_timing.rpt]
-    report_timing -late -max_paths 1 > $timing_report
+    # The default report is the late/setup report.  Do not pass -late here:
+    # older Genus Common UI releases (including 18.1x) do not implement that
+    # option even though newer releases do.
+    report_timing -max_paths 1 > $timing_report
     set wns [reported_setup_wns $timing_report]
     file delete -force $timing_report
     set closed [expr {$wns >= 0.0}]
@@ -172,11 +175,10 @@ if {$final_wns < 0.0} {
 }
 
 report_qor                                              > [file join $out_dir qor_timing.rpt]
-report_timing -late -max_paths $MAX_TIMING_PATHS        > [file join $out_dir timing_all_reg_to_reg.rpt]
-report_timing -late -through [get_cells u_imul_cycle1] -max_paths 20 > [file join $out_dir timing_cycle1.rpt]
-report_timing -late -through [get_cells u_imul_cycle2] -max_paths 20 > [file join $out_dir timing_cycle2.rpt]
-report_timing -late -through [get_cells u_imul_cycle3] -max_paths 20 > [file join $out_dir timing_cycle3.rpt]
-report_timing -early -max_paths 20                      > [file join $out_dir timing_hold.rpt]
+report_timing -max_paths $MAX_TIMING_PATHS              > [file join $out_dir timing_all_reg_to_reg.rpt]
+report_timing -through [get_cells u_imul_cycle1] -max_paths 20 > [file join $out_dir timing_cycle1.rpt]
+report_timing -through [get_cells u_imul_cycle2] -max_paths 20 > [file join $out_dir timing_cycle2.rpt]
+report_timing -through [get_cells u_imul_cycle3] -max_paths 20 > [file join $out_dir timing_cycle3.rpt]
 report_area                                             > [file join $out_dir area.rpt]
 report_gates                                            > [file join $out_dir gates.rpt]
 report_msg -error                                       > [file join $out_dir errors.rpt]
