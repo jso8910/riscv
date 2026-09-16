@@ -111,8 +111,6 @@ module dadda_stage #(
             localparam int NUM_HALF     = half_adders_at(column);
             localparam int LOCAL_HEIGHT = local_height_at(column);
             localparam int OUTPUTS      = output_height_at(column);
-            localparam int NEXT_LOCAL_HEIGHT =
-                (column < WIDTH - 1) ? local_height_at(column + 1) : 0;
 
             initial begin
                 if (INPUTS > INPUT_HEIGHT || INPUTS < 0 ||
@@ -135,6 +133,11 @@ module dadda_stage #(
 
                 // The last column just overflows
                 if (column < WIDTH - 1) begin : save_carry
+                    // Keep this calculation inside the generate-if.  Some
+                    // older synthesis front ends evaluate both arms of a
+                    // constant ternary, which would otherwise evaluate
+                    // local_height_at(WIDTH) for the final column.
+                    localparam int NEXT_LOCAL_HEIGHT = local_height_at(column + 1);
                     // We need to put this carry bit in the next column ABOVE the local bits
                     assign columns_o[column + 1][NEXT_LOCAL_HEIGHT + adder] =
                         carry_save;
@@ -152,6 +155,7 @@ module dadda_stage #(
                 assign carry_save = inputs[0] & inputs[1];
 
                 if (column < WIDTH - 1) begin : save_carry
+                    localparam int NEXT_LOCAL_HEIGHT = local_height_at(column + 1);
                     assign columns_o[column + 1][NEXT_LOCAL_HEIGHT +
                                                  NUM_FULL + adder] = carry_save;
                 end
