@@ -31,8 +31,8 @@ def run_benchmark(bench, path, args):
         path,
     ]
     try:
-        # RV64I builds use compiler helper loops for multiplication and division.
-        # The slowest GSF=1 Embench workloads can legitimately take several
+        # RV64I_Zmmul builds use direct multiply instructions but software division.
+        # The slowest GSF=1 Embench workloads can still take several
         # host minutes under cycle-accurate simulation.
         result = subprocess.run(command, text=True, capture_output=True, timeout=1_200)
     except subprocess.TimeoutExpired:

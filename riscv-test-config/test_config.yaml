@@ -1,4 +1,4 @@
-name: jason-rv64isu-sv39
+name: jason-rv64izmmulsu-sv39
 compiler_exe: riscv64-unknown-elf-gcc # executable name on $PATH or full path to executable
 objdump_exe: riscv64-unknown-elf-objdump # executable name on $PATH or full path to executable, optional
 ref_model_exe: sail_riscv_sim # executable name on $PATH or full path to executable

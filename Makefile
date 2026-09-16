@@ -8,22 +8,23 @@ IVERILOG_FLAGS := -g2012
 IVERILOG_WARN_FILTER := sed '/sorry: constant selects in always_[*] processes are not fully supported/d'
 
 BUILD_DIR := build
-TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test
+TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-dadda-stage test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test test-pipeline-fault-regression
 TEST_TARGET_COUNT := $(words $(TEST_TARGETS))
 
 # These paths are evaluated from within $(ARCH_TEST_DIR).
 ARCH_TEST_DIR ?= riscv-arch-test
 ARCH_TEST_CONFIG ?= ../riscv-test-config/test_config.yaml
 ARCH_TEST_RUN_CMD ?= ../riscv-test-config/run_cmd.txt
-ARCH_TEST_ELF_DIR ?= work/jason-rv64isu-sv39/elfs
+ARCH_TEST_ELF_DIR ?= work/jason-rv64izmmulsu-sv39/elfs
 # Keep this aligned with riscv-test-config/jason-rv64i.yaml.  The privileged
 # coverage includes U/S execution, Sstc, Sv39 translation, Svade A/D faults, and
 # Bare satp mode in addition to the base machine-mode/CSR/counter coverage.
-ARCH_TEST_EXTENSIONS ?= I,Sm,Zicsr,Zicntr,Zihpm,U,S,Sstc,Sv39,Svade,Svbare
+ARCH_TEST_EXTENSIONS ?= I,Zmmul,Sm,Zicsr,Zicntr,Zihpm,U,S,Sstc,Sv39,Svade,Svbare
 ARCH_TEST_FAST ?= True
 ARCH_TEST_TIMEOUT ?= 60
+PIPELINE_FAULT_MAX_CYCLES ?= 100000
 
-.PHONY: all core test test-all test-arch test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs bench-coremark bench-coremark-run bench-embench bench-embench-run clean
+.PHONY: all core test test-all test-arch test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-dadda-stage test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test-pipeline-fault-regression bench-coremark bench-coremark-run bench-embench bench-embench-run clean
 
 all: core
 
@@ -81,6 +82,9 @@ test-booth-encoder-radix4: $(BUILD_DIR)
 test-booth-partial-products: $(BUILD_DIR)
 	$(call RUN_TEST,tb_booth_partial_products,sim/tb_booth_partial_products.f)
 
+test-dadda-stage: $(BUILD_DIR)
+	$(call RUN_TEST,tb_dadda_stage,sim/tb_dadda_stage.f)
+
 test-sram: $(BUILD_DIR)
 	$(call RUN_TEST,tb_sram,sim/tb_sram.f)
 
@@ -131,6 +135,13 @@ test-control-helpers: $(BUILD_DIR)
 test-pipeline-regs: $(BUILD_DIR)
 	$(call RUN_TEST,tb_pipeline_regs,sim/tb_pipeline_regs.f)
 
+# Bare-metal regression for integer dependencies and precise Sv39/PMP faults.
+# It shares the cached Verilator architecture-test model used by test-arch and
+# the benchmark runners.
+test-pipeline-fault-regression:
+	$(MAKE) -C tests/asm
+	python3 sim/run_arch_test.py --simulator verilator --max-cycles $(PIPELINE_FAULT_MAX_CYCLES) build/pipeline_fault_regression.elf
+
 # Bare-metal benchmark flows.  CoreMark and Embench sources are pinned as
 # submodules; run `git submodule update --init --recursive` after cloning.
 bench-coremark:
@@ -143,7 +154,7 @@ bench-embench:
 	bench/build_embench.sh
 
 bench-embench-run:
-	bench/run_embench.sh
+	bench/run_embench.sh --relative
 
 clean:
 	rm -rf $(BUILD_DIR)

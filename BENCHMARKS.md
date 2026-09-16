@@ -10,9 +10,11 @@ bench/run_embench.sh --relative
 
 Benchmark progression
 
-eaf72ff: RV64I, 5 stage pipeline, no branch prediction, no multiply. Software multiply approach was
-radix-4 shift/add multiplier.
+131e4b3: RV64I, 5 stage pipeline, no branch prediction, no multiply. Software multiply approach was radix-4 shift/add multiplier.
+
+___: RV64I with Zmmul extension, 7 stage pipeline, no branch prediction, radix-4 Booth-encoded Dadda tree multiplier.
 
 | Commit hash | Core frequency | Embench | Coremarks/MHz |
 | -------- | -------- | -------- | -------- |
-| eaf72f    | DATA     | 0.48     | 0.786164 |
+| 131e4b3  | DATA     | 0.48     | 0.786164 |
+|          | N/A      | 0.81     | 1.663659 |

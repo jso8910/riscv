@@ -1,4 +1,5 @@
 import riscv::*;
+import imul_pkg::*;
 
 module riscv_core (
     input logic                 clk,
@@ -71,8 +72,8 @@ module riscv_core (
     // ==
     // IF
     // ==
-    logic ex_redirect, ex_redirect_raw, wb_trap_redirect, if_flush, wb_csr_redirect;
-    logic [XLEN-1:0] ex_redirect_pc, wb_redirect_pc, redirect_pc, wb_pred_pc;
+    logic ex1_redirect, ex1_redirect_raw, wb_trap_redirect, if_flush, wb_csr_redirect;
+    logic [XLEN-1:0] ex1_redirect_pc, wb_redirect_pc, redirect_pc, wb_pred_pc;
     mem_fault_t if_fetch_mem_fault;
     logic if_fetch_page_fault, if_ready, if_valid;
     logic [XLEN-1:0] if_fetch_pc, if_inst_pc, if_inst_pred_pc, if_fetch_page_fault_addr,
@@ -119,8 +120,8 @@ module riscv_core (
             end else begin
                 redirect_pc = wb_pred_pc;
             end
-        end else if (ex_redirect) begin
-            redirect_pc = ex_redirect_pc;
+        end else if (ex1_redirect) begin
+            redirect_pc = ex1_redirect_pc;
         end
     end
 
@@ -141,22 +142,6 @@ module riscv_core (
         .if_fetch_pc_i(if_fetch_pc),
         .if_pred_pc_o (if_pred_pc)
     );
-
-    // TODO: move this to a later stage (writeback)
-    // next_pc_unit u_next_pc_unit (
-    //     .ctrl_i        (ctrl),
-    //     .pc_i          (inst_pc),
-    //     .rs1_data_i    (rs1_data),
-    //     .rs2_data_i    (rs2_data),
-    //     .alu_res_i     (alu_res),
-    //     .mepc_i        (mepc),
-    //     .mtvec_i       (mtvec),
-    //     .sepc_i        (sepc),
-    //     .stvec_i       (stvec),
-    //     .trap_i        (trap),
-    //     .next_pc_o     (next_pc),
-    //     .address_misaligned_o (address_misaligned)
-    // );
 
     // ==============
     // IF/ID Register
@@ -224,18 +209,18 @@ module riscv_core (
     end
 
     // ==============
-    // ID/EX Register
+    // ID/EX1 Register
     // ==============
-    mem_fault_t ex_fetch_mem_fault;
-    logic id_ex_stall, ex_ready, ex_valid, ex_fetch_page_fault, ex_flush;
-    logic [XLEN-1:0] ex_pc, ex_imm, ex_fetch_mem_fault_addr, ex_fetch_page_fault_addr, ex_pred_pc,
-                     ex_rs1_data_raw, ex_rs2_data_raw, ex_csr_data_read_raw;
-    ctrl_t ex_ctrl;
-    id_ex_reg id_ex_reg (
+    mem_fault_t ex1_fetch_mem_fault;
+    logic id_ex1_stall, ex1_ready, ex1_valid, ex1_fetch_page_fault, ex1_flush;
+    logic [XLEN-1:0] ex1_pc, ex1_imm, ex1_fetch_mem_fault_addr, ex1_fetch_page_fault_addr,
+                     ex1_pred_pc, ex1_rs1_data_raw, ex1_rs2_data_raw, ex1_csr_data_read_raw;
+    ctrl_t ex1_ctrl;
+    id_ex1_reg id_ex1_reg (
         .clk                       (clk),
         .rst_n                     (rst_n),
-        .stall_i                   (id_ex_stall),
-        .ex_flush_i                (ex_flush | ex_redirect),
+        .stall_i                   (id_ex1_stall),
+        .ex1_flush_i               (ex1_flush | ex1_redirect),
         .id_flush_o                (id_flush),
         .id_valid_i                (id_valid),
         .id_ready_o                (id_ready),
@@ -250,118 +235,132 @@ module riscv_core (
         .id_fetch_mem_fault_addr_i (id_fetch_mem_fault_addr),
         .id_fetch_page_fault_i     (id_fetch_page_fault),
         .id_fetch_page_fault_addr_i(id_fetch_page_fault_addr),
-        .ex_ready_i                (ex_ready),
-        .ex_valid_o                (ex_valid),
-        .ex_pc_o                   (ex_pc),
-        .ex_pred_pc_o              (ex_pred_pc),
-        .ex_ctrl_o                 (ex_ctrl),
-        .ex_rs1_data_raw_o         (ex_rs1_data_raw),
-        .ex_rs2_data_raw_o         (ex_rs2_data_raw),
-        .ex_csr_data_read_raw_o    (ex_csr_data_read_raw),
-        .ex_imm_o                  (ex_imm),
-        .ex_fetch_mem_fault_o      (ex_fetch_mem_fault),
-        .ex_fetch_mem_fault_addr_o (ex_fetch_mem_fault_addr),
-        .ex_fetch_page_fault_o     (ex_fetch_page_fault),
-        .ex_fetch_page_fault_addr_o(ex_fetch_page_fault_addr)
+        .ex1_ready_i               (ex1_ready),
+        .ex1_valid_o               (ex1_valid),
+        .ex1_pc_o                  (ex1_pc),
+        .ex1_pred_pc_o             (ex1_pred_pc),
+        .ex1_ctrl_o                (ex1_ctrl),
+        .ex1_rs1_data_raw_o        (ex1_rs1_data_raw),
+        .ex1_rs2_data_raw_o        (ex1_rs2_data_raw),
+        .ex1_csr_data_read_raw_o   (ex1_csr_data_read_raw),
+        .ex1_imm_o                 (ex1_imm),
+        .ex1_fetch_mem_fault_o     (ex1_fetch_mem_fault),
+        .ex1_fetch_mem_fault_addr_o(ex1_fetch_mem_fault_addr),
+        .ex1_fetch_page_fault_o    (ex1_fetch_page_fault),
+        .ex1_fetch_page_fault_addr_o(ex1_fetch_page_fault_addr)
     );
 
     // ===========
     // Hazard unit
     // ===========
-    logic load_use_hazard, late_csr_use_hazard, csr_interlock_hazard;
+    logic load_use_hazard, mul_use_hazard, late_csr_use_hazard, csr_interlock_hazard,
+          ex2_valid, ex3_valid;
+    ctrl_t ex2_ctrl, ex3_ctrl;
     hazard_unit hazard_unit (
-        .ex_valid_i       (ex_valid),
+        .ex1_valid_i      (ex1_valid),
+        .ex2_valid_i      (ex2_valid),
+        .ex3_valid_i      (ex3_valid),
         .mem_valid_i      (mem_valid),
         .wb_valid_i       (wb_valid),
-        .ex_ctrl_i        (ex_ctrl),
+        .ex1_ctrl_i       (ex1_ctrl),
+        .ex2_ctrl_i       (ex2_ctrl),
+        .ex3_ctrl_i       (ex3_ctrl),
         .mem_ctrl_i       (mem_ctrl),
         .wb_ctrl_i        (wb_ctrl),
         .id_ctrl_i        (id_ctrl),
         .load_use_hazard_o(load_use_hazard),
+        .mul_use_hazard_o (mul_use_hazard),
         .late_csr_use_hazard_o(late_csr_use_hazard),
         .csr_interlock_hazard_o(csr_interlock_hazard)
     );
 
-    assign id_ex_stall = load_use_hazard || late_csr_use_hazard || csr_interlock_hazard;
+    assign id_ex1_stall = load_use_hazard || mul_use_hazard || late_csr_use_hazard
+                          || csr_interlock_hazard;
 
     // ===============
     // Forwarding unit
     // ===============
-    logic [XLEN-1:0] ex_rs1_data, ex_rs2_data, ex_csr_data_read, mem_rd_data, mem_csr_data_write,
+    logic [XLEN-1:0] ex1_rs1_data, ex1_rs2_data, ex1_csr_data_read, mem_rd_data, mem_csr_data_write,
                      mem_csr_operand, wb_csr_data_write, wb_csr_data_write_raw, wb_csr_operand,
-                     wb_csr_data_read_late, wb_late_csr_data_write;
+                     wb_csr_data_read_late, wb_late_csr_data_write, ex2_rd_data, ex3_rd_data;
     logic wb_late_csr_access;
     forwarding_unit forwarding_unit (
-        .ex_ctrl_i     (ex_ctrl),
-        .ex_rs1_data_raw_i  (ex_rs1_data_raw),
-        .ex_rs2_data_raw_i  (ex_rs2_data_raw),
-        .ex_csr_data_raw_i  (ex_csr_data_read_raw),
+        .ex_ctrl_i     (ex1_ctrl),
+        .ex_rs1_data_raw_i  (ex1_rs1_data_raw),
+        .ex_rs2_data_raw_i  (ex1_rs2_data_raw),
+        .ex_csr_data_raw_i  (ex1_csr_data_read_raw),
+        .ex2_valid_i    (ex2_valid),
+        .ex2_ctrl_i     (ex2_ctrl),
+        .ex2_rd_data_i  (ex2_rd_data),
+        .ex3_valid_i    (ex3_valid),
+        .ex3_ctrl_i     (ex3_ctrl),
+        .ex3_rd_data_i  (ex3_rd_data),
         .mem_valid_i   (mem_valid),
         .mem_ctrl_i    (mem_ctrl),
         .mem_rd_data_i (mem_rd_data),
         .wb_valid_i    (wb_valid),
         .wb_ctrl_i     (wb_ctrl),
         .wb_rd_data_i  (wb_rd_data),
-        .ex_rs1_data_o (ex_rs1_data),
-        .ex_rs2_data_o (ex_rs2_data),
-        .ex_csr_data_o (ex_csr_data_read)
+        .ex_rs1_data_o (ex1_rs1_data),
+        .ex_rs2_data_o (ex1_rs2_data),
+        .ex_csr_data_o (ex1_csr_data_read)
     );
 
-    logic [XLEN-1:0] ex_csr_data_write, ex_csr_operand;
-    assign ex_csr_operand = ex_ctrl.csr_imm ? XLEN'(ex_ctrl.rs1_addr) : ex_rs1_data;
+    logic [XLEN-1:0] ex1_csr_data_write, ex1_csr_operand;
+    assign ex1_csr_operand = ex1_ctrl.csr_imm ? XLEN'(ex1_ctrl.rs1_addr) : ex1_rs1_data;
     csr_val_gen csr_val_gen (
-        .ctrl_i    (ex_ctrl),
-        .rs1_data_i(ex_rs1_data),
-        .csr_val_i (ex_csr_data_read),
-        .csr_data_o(ex_csr_data_write)
+        .ctrl_i    (ex1_ctrl),
+        .rs1_data_i(ex1_rs1_data),
+        .csr_val_i (ex1_csr_data_read),
+        .csr_data_o(ex1_csr_data_write)
     );
 
     // =============
     // Operand 1 mux
     // =============
-    logic [XLEN-1:0] ex_op1;
+    logic [XLEN-1:0] ex1_op1;
     always_comb begin
-        case (ex_ctrl.op1_src)
-            RS1 : ex_op1 = ex_rs1_data;
-            PC : ex_op1 = ex_pc;
+        case (ex1_ctrl.op1_src)
+            RS1 : ex1_op1 = ex1_rs1_data;
+            PC : ex1_op1 = ex1_pc;
             default: $fatal(1);
         endcase
     end
 
     // =======
-    // Execute
+    // Execute 1
     // =======
-    logic [XLEN-1:0] ex_alu_res;
+    logic [XLEN-1:0] ex1_alu_res;
     alu u_alu (
-        .ctrl_i        (ex_ctrl),
-        .op1_data_i    (ex_op1),
-        .op2_data_i    (ex_rs2_data),
-        .imm_i         (ex_imm),
-        .res_o         (ex_alu_res)
+        .ctrl_i        (ex1_ctrl),
+        .op1_data_i    (ex1_op1),
+        .op2_data_i    (ex1_rs2_data),
+        .imm_i         (ex1_imm),
+        .res_o         (ex1_alu_res)
     );
 
-    sfence_sel_t ex_sfence_sel;
+    sfence_sel_t ex1_sfence_sel;
     sfence_selector u_sfence_selector (
-        .ctrl_i      (ex_ctrl),
-        .rs1_data_i  (ex_rs1_data),
-        .rs2_data_i  (ex_rs2_data),
-        .sfence_sel_o(ex_sfence_sel)
+        .ctrl_i      (ex1_ctrl),
+        .rs1_data_i  (ex1_rs1_data),
+        .rs2_data_i  (ex1_rs2_data),
+        .sfence_sel_o(ex1_sfence_sel)
     );
 
     // ============
     // Rd value mux
     // ============
-    logic [XLEN-1:0] ex_rd_data;
+    logic [XLEN-1:0] ex1_rd_data;
     always_comb begin
-        ex_rd_data = '0;
-        case (ex_ctrl.wb_sel)
-            WB_ALU : ex_rd_data = ex_alu_res;
+        ex1_rd_data = '0;
+        case (ex1_ctrl.wb_sel)
+            WB_ALU : ex1_rd_data = ex1_alu_res;
             // this will be filled in after MEM. since we insert a stall for load-use hazards, this
             // value will never end up being used
-            WB_MEM : ex_rd_data = '0;
-            WB_IMM : ex_rd_data = ex_imm;
-            WB_PC_PLUS_4 : ex_rd_data = ex_pc + PC_INC;
-            WB_CSR : ex_rd_data = ex_csr_data_read;
+            WB_MEM : ex1_rd_data = '0;
+            WB_IMM : ex1_rd_data = ex1_imm;
+            WB_PC_PLUS_4 : ex1_rd_data = ex1_pc + PC_INC;
+            WB_CSR : ex1_rd_data = ex1_csr_data_read;
             default : $fatal(1);
         endcase
     end
@@ -369,58 +368,189 @@ module riscv_core (
     // =======
     // Next PC
     // =======
-    logic ex_address_misaligned;
+    logic ex1_address_misaligned;
     next_pc_unit next_pc_unit (
-        .ctrl_i              (ex_ctrl),
-        .pc_i                (ex_pc),
-        .pred_pc_i           (ex_pred_pc),
-        .rs1_data_i          (ex_rs1_data),
-        .rs2_data_i          (ex_rs2_data),
-        .alu_res_i           (ex_alu_res),
+        .ctrl_i              (ex1_ctrl),
+        .pc_i                (ex1_pc),
+        .pred_pc_i           (ex1_pred_pc),
+        .rs1_data_i          (ex1_rs1_data),
+        .rs2_data_i          (ex1_rs2_data),
+        .alu_res_i           (ex1_alu_res),
         // SPECULATION: mepc and sepc won't change before WB
         .mepc_i              (mepc),
         // .mtvec_i             (mtvec_i),
         .sepc_i              (sepc),
         // .stvec_i             (stvec_i),
         // .trap_i              (trap_i),
-        .next_pc_o           (ex_redirect_pc),
-        .redirect_o          (ex_redirect_raw),
-        .address_misaligned_o(ex_address_misaligned)
+        .next_pc_o           (ex1_redirect_pc),
+        .redirect_o          (ex1_redirect_raw),
+        .address_misaligned_o(ex1_address_misaligned)
     );
     // next_pc_unit is combinational and its reset/bubble inputs need not
-    // predict sequentially; only a valid EX instruction may redirect.
-    assign ex_redirect = ex_valid && ex_redirect_raw;
+    // predict sequentially; only a valid EX1 instruction may redirect.
+    assign ex1_redirect = ex1_valid && ex1_redirect_raw;
 
     // ===============
-    // EX/MEM Register
+    // EX1/EX2 Register
     // ===============
-    logic ex_mem_stall, mem_ready, mem_fetch_page_fault, mem_flush, mem_address_misaligned;
+    logic ex1_ex2_stall, ex2_ready, ex2_fetch_page_fault, ex2_flush;
+    logic [XLEN-1:0] ex2_pc, ex2_pred_pc, ex2_addr, ex2_store_data,
+                     ex2_csr_data_write, ex2_csr_operand, ex2_fetch_mem_fault_addr,
+                     ex2_fetch_page_fault_addr;
+    logic [MAX_HEIGHT[1]-1:0] ex1_imul_intermediate [PP_WIDTH-1:0],
+                               ex2_imul_intermediate [PP_WIDTH-1:0];
+    sfence_sel_t ex2_sfence_sel;
+    mem_fault_t ex2_fetch_mem_fault;
+    logic ex2_address_misaligned;
+    imul_cycle1 u_imul_cycle1 (
+        .ctrl_i        (ex1_ctrl),
+        .op1_data_i    (ex1_rs1_data),
+        .op2_data_i    (ex1_rs2_data),
+        .imul_cycle1_o (ex1_imul_intermediate)
+    );
+    ex1_ex2_reg ex1_ex2_reg (
+        .clk                        (clk),
+        .rst_n                      (rst_n),
+        .stall_i                    (ex1_ex2_stall),
+        .ex2_flush_i                (ex2_flush),
+        .ex1_flush_o                (ex1_flush),
+        .ex1_valid_i                (ex1_valid),
+        .ex1_ready_o                (ex1_ready),
+        .ex1_pc_i                   (ex1_pc),
+        .ex1_pred_pc_i              (ex1_pred_pc),
+        .ex1_ctrl_i                 (ex1_ctrl),
+        .ex1_sfence_sel_i           (ex1_sfence_sel),
+        .ex1_addr_i                 (ex1_alu_res),
+        .ex1_store_data_i           (ex1_rs2_data),
+        .ex1_rd_data_i              (ex1_rd_data),
+        .ex1_csr_data_write_i       (ex1_csr_data_write),
+        .ex1_csr_operand_i          (ex1_csr_operand),
+        .ex1_fetch_mem_fault_i      (ex1_fetch_mem_fault),
+        .ex1_fetch_mem_fault_addr_i (ex1_fetch_mem_fault_addr),
+        .ex1_fetch_page_fault_i     (ex1_fetch_page_fault),
+        .ex1_fetch_page_fault_addr_i(ex1_fetch_page_fault_addr),
+        .ex1_address_misaligned_i   (ex1_address_misaligned),
+        .ex1_imul_intermediate_i    (ex1_imul_intermediate),
+        .ex2_ready_i                (ex2_ready),
+        .ex2_valid_o                (ex2_valid),
+        .ex2_pc_o                   (ex2_pc),
+        .ex2_pred_pc_o              (ex2_pred_pc),
+        .ex2_ctrl_o                 (ex2_ctrl),
+        .ex2_sfence_sel_o           (ex2_sfence_sel),
+        .ex2_addr_o                 (ex2_addr),
+        .ex2_store_data_o           (ex2_store_data),
+        .ex2_rd_data_o              (ex2_rd_data),
+        .ex2_csr_data_write_o       (ex2_csr_data_write),
+        .ex2_csr_operand_o          (ex2_csr_operand),
+        .ex2_fetch_mem_fault_o      (ex2_fetch_mem_fault),
+        .ex2_fetch_mem_fault_addr_o (ex2_fetch_mem_fault_addr),
+        .ex2_fetch_page_fault_o     (ex2_fetch_page_fault),
+        .ex2_fetch_page_fault_addr_o(ex2_fetch_page_fault_addr),
+        .ex2_address_misaligned_o   (ex2_address_misaligned),
+        .ex2_imul_intermediate_o    (ex2_imul_intermediate)
+    );
+    assign ex1_ex2_stall = '0;
+
+    // ===============
+    // EX2/EX3 Register
+    // ===============
+    logic ex2_ex3_stall, ex3_ready, ex3_fetch_page_fault, ex3_flush;
+    logic [XLEN-1:0] ex3_pc, ex3_pred_pc, ex3_addr, ex3_store_data, ex3_rd_data_raw,
+                     ex3_csr_data_write, ex3_csr_operand, ex3_fetch_mem_fault_addr,
+                     ex3_fetch_page_fault_addr;
+    logic [MAX_HEIGHT[5]-1:0] ex2_imul_intermediate_next [PP_WIDTH-1:0],
+                               ex3_imul_intermediate [PP_WIDTH-1:0];
+    sfence_sel_t ex3_sfence_sel;
+    mem_fault_t ex3_fetch_mem_fault;
+    logic ex3_address_misaligned;
+    imul_cycle2 u_imul_cycle2 (
+        .imul_cycle1_i (ex2_imul_intermediate),
+        .imul_cycle2_o (ex2_imul_intermediate_next)
+    );
+    ex2_ex3_reg ex2_ex3_reg (
+        .clk                        (clk),
+        .rst_n                      (rst_n),
+        .stall_i                    (ex2_ex3_stall),
+        .ex3_flush_i                (ex3_flush),
+        .ex2_flush_o                (ex2_flush),
+        .ex2_valid_i                (ex2_valid),
+        .ex2_ready_o                (ex2_ready),
+        .ex2_pc_i                   (ex2_pc),
+        .ex2_pred_pc_i              (ex2_pred_pc),
+        .ex2_ctrl_i                 (ex2_ctrl),
+        .ex2_sfence_sel_i           (ex2_sfence_sel),
+        .ex2_addr_i                 (ex2_addr),
+        .ex2_store_data_i           (ex2_store_data),
+        .ex2_rd_data_i              (ex2_rd_data),
+        .ex2_csr_data_write_i       (ex2_csr_data_write),
+        .ex2_csr_operand_i          (ex2_csr_operand),
+        .ex2_fetch_mem_fault_i      (ex2_fetch_mem_fault),
+        .ex2_fetch_mem_fault_addr_i (ex2_fetch_mem_fault_addr),
+        .ex2_fetch_page_fault_i     (ex2_fetch_page_fault),
+        .ex2_fetch_page_fault_addr_i(ex2_fetch_page_fault_addr),
+        .ex2_address_misaligned_i   (ex2_address_misaligned),
+        .ex2_imul_intermediate_i    (ex2_imul_intermediate_next),
+        .ex3_ready_i                (ex3_ready),
+        .ex3_valid_o                (ex3_valid),
+        .ex3_pc_o                   (ex3_pc),
+        .ex3_pred_pc_o              (ex3_pred_pc),
+        .ex3_ctrl_o                 (ex3_ctrl),
+        .ex3_sfence_sel_o           (ex3_sfence_sel),
+        .ex3_addr_o                 (ex3_addr),
+        .ex3_store_data_o           (ex3_store_data),
+        .ex3_rd_data_o              (ex3_rd_data_raw),
+        .ex3_csr_data_write_o       (ex3_csr_data_write),
+        .ex3_csr_operand_o          (ex3_csr_operand),
+        .ex3_fetch_mem_fault_o      (ex3_fetch_mem_fault),
+        .ex3_fetch_mem_fault_addr_o (ex3_fetch_mem_fault_addr),
+        .ex3_fetch_page_fault_o     (ex3_fetch_page_fault),
+        .ex3_fetch_page_fault_addr_o(ex3_fetch_page_fault_addr),
+        .ex3_address_misaligned_o   (ex3_address_misaligned),
+        .ex3_imul_intermediate_o    (ex3_imul_intermediate)
+    );
+    assign ex2_ex3_stall = '0;
+
+    // ===============
+    // EX3/MEM Register
+    // ===============
+    logic ex3_mem_stall, mem_ready, mem_fetch_page_fault, mem_flush, mem_address_misaligned;
     logic [XLEN-1:0] mem_pc, mem_fetch_mem_fault_addr, mem_fetch_page_fault_addr, mem_pred_pc,
                      mem_addr;
     sfence_sel_t mem_sfence_sel, wb_sfence_sel;
     mem_fault_t mem_fetch_mem_fault;
-    ex_mem_reg ex_mem_reg (
+    logic [XLEN-1:0] ex3_imul_res;
+    imul_cycle3 u_imul_cycle3 (
+        .ctrl_i        (ex3_ctrl),
+        .imul_cycle2_i (ex3_imul_intermediate),
+        .imul_res_o    (ex3_imul_res)
+    );
+    always_comb begin
+        ex3_rd_data = ex3_rd_data_raw;
+        if (ex3_ctrl.mul_op != NO_MUL)
+            ex3_rd_data = ex3_imul_res;
+    end
+    ex3_mem_reg ex3_mem_reg (
         .clk                        (clk),
         .rst_n                      (rst_n),
-        .stall_i                    (ex_mem_stall),
+        .stall_i                    (ex3_mem_stall),
         .mem_flush_i                (mem_flush),
-        .ex_flush_o                 (ex_flush),
-        .ex_valid_i                 (ex_valid),
-        .ex_ready_o                 (ex_ready),
-        .ex_pc_i                    (ex_pc),
-        .ex_pred_pc_i               (ex_pred_pc),
-        .ex_ctrl_i                  (ex_ctrl),
-        .ex_sfence_sel_i            (ex_sfence_sel),
-        .ex_addr_i                  (ex_alu_res),
-        .ex_store_data_i            (ex_rs2_data),
-        .ex_rd_data_i               (ex_rd_data),
-        .ex_csr_data_write_i        (ex_csr_data_write),
-        .ex_csr_operand_i           (ex_csr_operand),
-        .ex_fetch_mem_fault_i       (ex_fetch_mem_fault),
-        .ex_fetch_mem_fault_addr_i  (ex_fetch_mem_fault_addr),
-        .ex_fetch_page_fault_i      (ex_fetch_page_fault),
-        .ex_fetch_page_fault_addr_i (ex_fetch_page_fault_addr),
-        .ex_address_misaligned_i    (ex_address_misaligned),
+        .ex3_flush_o                (ex3_flush),
+        .ex3_valid_i                (ex3_valid),
+        .ex3_ready_o                (ex3_ready),
+        .ex3_pc_i                   (ex3_pc),
+        .ex3_pred_pc_i              (ex3_pred_pc),
+        .ex3_ctrl_i                 (ex3_ctrl),
+        .ex3_sfence_sel_i           (ex3_sfence_sel),
+        .ex3_addr_i                 (ex3_addr),
+        .ex3_store_data_i           (ex3_store_data),
+        .ex3_rd_data_i              (ex3_rd_data),
+        .ex3_csr_data_write_i       (ex3_csr_data_write),
+        .ex3_csr_operand_i          (ex3_csr_operand),
+        .ex3_fetch_mem_fault_i      (ex3_fetch_mem_fault),
+        .ex3_fetch_mem_fault_addr_i (ex3_fetch_mem_fault_addr),
+        .ex3_fetch_page_fault_i     (ex3_fetch_page_fault),
+        .ex3_fetch_page_fault_addr_i(ex3_fetch_page_fault_addr),
+        .ex3_address_misaligned_i   (ex3_address_misaligned),
         .mem_ready_i                (mem_ready),
         .mem_valid_o                (mem_valid),
         .mem_pc_o                   (mem_pc),
@@ -439,7 +569,7 @@ module riscv_core (
         .mem_address_misaligned_o   (mem_address_misaligned)
     );
 
-    assign ex_mem_stall = '0;
+    assign ex3_mem_stall = '0;
 
     // =========
     // MEM stage

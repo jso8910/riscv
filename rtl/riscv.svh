@@ -466,6 +466,14 @@ package riscv;
     localparam logic [2:0] SLL     = 3'b001;
     localparam logic [2:0] SR      = 3'b101;
 
+    // ==============================
+    // OP funct3 values (M extension)
+    // ==============================
+    localparam logic [2:0] MUL    = 3'b000;
+    localparam logic [2:0] MULH   = 3'b001;
+    localparam logic [2:0] MULHSU = 3'b010;
+    localparam logic [2:0] MULHU  = 3'b011;
+
     // ====================
     // BRANCH funct3 values
     // ====================
@@ -498,9 +506,10 @@ package riscv;
     // =============
     // funct7 values
     // =============
-    localparam logic [6:0] FUNCT7_BASE = 7'b0000000;
-    localparam logic [6:0] FUNCT7_ALT  = 7'b0100000; // SUB/SRA/SRAI
-    localparam logic [6:0] FUNCT7_ANY  = 7'b???????;
+    localparam logic [6:0] FUNCT7_BASE   = 7'b0000000;
+    localparam logic [6:0] FUNCT7_ALT    = 7'b0100000; // SUB/SRA/SRAI
+    localparam logic [6:0] FUNCT7_ANY    = 7'b???????;
+    localparam logic [6:0] FUNCT7_MULDIV = 7'b0000001;
 
     // ===========
     // misc values
@@ -601,10 +610,10 @@ package riscv;
 
     typedef enum logic [2:0] {
         NO_MUL,
-        MUL,                    // lower 64 bits (or lower 32 bits if alu_word_op)
-        MULH,                   // upper 64 bits: signed * signed
-        MULHU,                  // upper 64 bits: unsigned * unsigned
-        MULHSU                  // upper 64 bits: signed * unsigned
+        OP_MUL,                    // lower 64 bits (or lower 32 bits if alu_word_op)
+        OP_MULH,                   // upper 64 bits: signed * signed
+        OP_MULHU,                  // upper 64 bits: unsigned * unsigned
+        OP_MULHSU                  // upper 64 bits: signed * unsigned
     } mul_op_t;
 
     typedef struct packed {

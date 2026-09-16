@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 
 import riscv::*;
-import imul::*;
+import imul_pkg::*;
 
 module tb_booth_partial_products;
     localparam int RANDOM_TESTS = 1000;
@@ -9,6 +9,7 @@ module tb_booth_partial_products;
     logic signed [XLEN:0] multiplicand;
     logic signed [XLEN:0] multiplier;
     logic signed [PP_WIDTH-1:0] partial_products [NUM_PP-1:0];
+    logic [NUM_PP-1:0] dadda_columns [PP_WIDTH-1:0];
 
     int tests_run;
     int tests_failed;
@@ -17,6 +18,11 @@ module tb_booth_partial_products;
         .op1_data_i(multiplicand),
         .op2_data_i(multiplier),
         .partial_products_o(partial_products)
+    );
+
+    booth_partial_products_to_columns u_booth_partial_products_to_columns (
+        .partial_products_i(partial_products),
+        .columns_o(dadda_columns)
     );
 
     function automatic logic signed [PP_WIDTH-1:0] recoded_multiplicand(
@@ -58,11 +64,26 @@ module tb_booth_partial_products;
         logic signed [XLEN+1:-1] padded_multiplier;
         logic signed [PP_WIDTH-1:0] expected_pp;
         logic signed [PP_WIDTH-1:0] partial_sum;
+        logic expected_column_bit;
         begin
             multiplicand = multiplicand_in;
             multiplier = multiplier_in;
             padded_multiplier = $signed({multiplier_in[XLEN], multiplier_in, 1'b0});
             #1;
+
+            for (int column = 0; column < PP_WIDTH; column++) begin
+                for (int row = 0; row < NUM_PP; row++) begin
+                    expected_column_bit = (2 * row <= column) ?
+                                          partial_products[row][column] : 1'b0;
+                    tests_run++;
+                    if (dadda_columns[column][row] !== expected_column_bit) begin
+                        tests_failed++;
+                        $fatal(1, "%s, column %0d slot %0d: expected %b got %b",
+                               name, column, row, expected_column_bit,
+                               dadda_columns[column][row]);
+                    end
+                end
+            end
 
             partial_sum = '0;
             for (int i = 0; i < NUM_PP; i++) begin

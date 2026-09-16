@@ -1,8 +1,9 @@
 #include <stdint.h>
 
 /* The installed toolchain has only a hard-float libgcc multilib.  These small
- * RV64I compiler helpers keep the bare-metal benchmark images self-contained
- * and, importantly, prevent the linker from pulling in M/F/D instructions. */
+ * RV64I_Zmmul compiler helpers keep the bare-metal benchmark images self-contained
+ * for operations that remain unsupported, notably division and 128-bit
+ * multiplication. Ordinary 64-bit multiplication is emitted as MUL. */
 uint64_t __muldi3(uint64_t left, uint64_t right)
 {
     uint64_t product = 0;

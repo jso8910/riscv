@@ -1,3 +1,3 @@
 rtl/riscv.svh
-rtl/sram.sv
+rtl/memory/sram.sv
 tb/tb_sram.sv

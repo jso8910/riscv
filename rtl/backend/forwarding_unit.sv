@@ -16,7 +16,19 @@ module forwarding_unit (
     input logic [XLEN-1:0]  ex_rs2_data_raw_i,
     input logic [XLEN-1:0]  ex_csr_data_raw_i,
 
-    // Forwarding from EX/MEM register
+    // Forwarding from EX1/EX2 register. This is the newest possible
+    // producer for a consumer executing in EX1.
+    input logic             ex2_valid_i,
+    input ctrl_t            ex2_ctrl_i,
+    input logic [XLEN-1:0]  ex2_rd_data_i,
+
+    // Forwarding from EX2/EX3 register. Multiplication finishes in EX3, so
+    // this stage carries its first usable result.
+    input logic             ex3_valid_i,
+    input ctrl_t            ex3_ctrl_i,
+    input logic [XLEN-1:0]  ex3_rd_data_i,
+
+    // Forwarding from EX3/MEM register
     input logic             mem_valid_i,
     input ctrl_t            mem_ctrl_i,
     input logic [XLEN-1:0]  mem_rd_data_i,
@@ -32,12 +44,26 @@ module forwarding_unit (
     output logic [XLEN-1:0] ex_csr_data_o
 );
 
+    function automatic logic can_forward(
+        input logic valid,
+        input ctrl_t ctrl
+    );
+        can_forward = valid && ctrl.reg_write && ctrl.wb_sel != WB_MEM
+                      && ctrl.rd_addr != X0;
+    endfunction
+
     always_comb begin
         // rs1 forwarding
-        if (mem_valid_i && mem_ctrl_i.reg_write && mem_ctrl_i.wb_sel != WB_MEM
-            && mem_ctrl_i.rd_addr != X0 && mem_ctrl_i.rd_addr == ex_ctrl_i.rs1_addr) begin
+        if (can_forward(ex2_valid_i, ex2_ctrl_i) && ex2_ctrl_i.mul_op == NO_MUL
+            && ex2_ctrl_i.rd_addr == ex_ctrl_i.rs1_addr) begin
+            ex_rs1_data_o = ex2_rd_data_i;
+        end else if (can_forward(ex3_valid_i, ex3_ctrl_i)
+                     && ex3_ctrl_i.rd_addr == ex_ctrl_i.rs1_addr) begin
+            ex_rs1_data_o = ex3_rd_data_i;
+        end else if (can_forward(mem_valid_i, mem_ctrl_i)
+                     && mem_ctrl_i.rd_addr == ex_ctrl_i.rs1_addr) begin
             ex_rs1_data_o = mem_rd_data_i;
-        end else if (wb_valid_i && wb_ctrl_i.reg_write && wb_ctrl_i.rd_addr != X0
+        end else if (can_forward(wb_valid_i, wb_ctrl_i)
                      && wb_ctrl_i.rd_addr == ex_ctrl_i.rs1_addr) begin
             ex_rs1_data_o = wb_rd_data_i;
         end else begin
@@ -45,10 +71,16 @@ module forwarding_unit (
         end
 
         // rs2 forwarding
-        if (mem_valid_i && mem_ctrl_i.reg_write && mem_ctrl_i.wb_sel != WB_MEM
-            && mem_ctrl_i.rd_addr != X0 && mem_ctrl_i.rd_addr == ex_ctrl_i.rs2_addr) begin
+        if (can_forward(ex2_valid_i, ex2_ctrl_i) && ex2_ctrl_i.mul_op == NO_MUL
+            && ex2_ctrl_i.rd_addr == ex_ctrl_i.rs2_addr) begin
+            ex_rs2_data_o = ex2_rd_data_i;
+        end else if (can_forward(ex3_valid_i, ex3_ctrl_i)
+                     && ex3_ctrl_i.rd_addr == ex_ctrl_i.rs2_addr) begin
+            ex_rs2_data_o = ex3_rd_data_i;
+        end else if (can_forward(mem_valid_i, mem_ctrl_i)
+                     && mem_ctrl_i.rd_addr == ex_ctrl_i.rs2_addr) begin
             ex_rs2_data_o = mem_rd_data_i;
-        end else if (wb_valid_i && wb_ctrl_i.reg_write && wb_ctrl_i.rd_addr != X0
+        end else if (can_forward(wb_valid_i, wb_ctrl_i)
                      && wb_ctrl_i.rd_addr == ex_ctrl_i.rs2_addr) begin
             ex_rs2_data_o = wb_rd_data_i;
         end else begin

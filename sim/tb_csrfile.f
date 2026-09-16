@@ -1,3 +1,3 @@
 rtl/riscv.svh
-rtl/csrfile.sv
+rtl/backend/csrfile.sv
 tb/tb_csrfile.sv

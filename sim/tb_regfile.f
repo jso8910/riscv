@@ -1,3 +1,3 @@
 rtl/riscv.svh
-rtl/regfile.sv
+rtl/backend/regfile.sv
 tb/tb_regfile.sv

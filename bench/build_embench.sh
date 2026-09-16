@@ -17,7 +17,7 @@ fi
 common_flags=(
   -std=gnu17 -O2 -ffreestanding -fno-builtin -fno-pic -fno-stack-protector
   -ffunction-sections -fdata-sections -msmall-data-limit=0
-  -march=rv64i_zicsr_zicntr -mabi=lp64 -mcmodel=medany
+  -march=rv64i_zmmul_zicsr_zicntr -mabi=lp64 -mcmodel=medany
   -I"$root_dir/bench/platform/include"
 )
 

@@ -1,3 +1,3 @@
 rtl/riscv.svh
-rtl/alu.sv
+rtl/backend/alu.sv
 tb/tb_alu.sv

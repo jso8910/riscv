@@ -21,9 +21,6 @@ module sram #(
 
     // Memory read
     always_comb begin
-        // TODO proper fault handling if address_i is not between START_ADDRESS and END_ADDRESS
-        // This should be in some external memory controller, because it's not possible to know if
-        // eg address_i + 2 being outside the range is invalid or not from here.
         for (int i = 0; i < NUM_BYTES; i++) begin
             mem_byte_array[i] = (address_1_i + uintxlen_t'(i) <= END_ADDRESS) && (address_1_i + uintxlen_t'(i) >= START_ADDRESS) ? mem[address_1_i + uintxlen_t'(i)] : 8'b0;
             data_1_o[i * 8 +: 8] = mem_byte_array[i];

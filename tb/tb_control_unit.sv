@@ -54,6 +54,21 @@ module tb_control_unit;
               ctrl.reg_write && ctrl.wb_sel == WB_ALU && ctrl.alu_sel_imm
               && ctrl.alu_op == ALU_ADD && imm == 32'd5);
 
+        drive(32'h0231_00b3); // mul x1, x2, x3
+        check("MUL selects the low-half multiply operation",
+              !ctrl.illegal && ctrl.reg_write && ctrl.wb_sel == WB_ALU
+              && !ctrl.alu_sel_imm && !ctrl.alu_word_op && ctrl.mul_op == OP_MUL);
+
+        drive(32'h0231_00bb); // mulw x1, x2, x3
+        check("MULW selects the word multiply operation",
+              !ctrl.illegal && ctrl.reg_write && ctrl.wb_sel == WB_ALU
+              && !ctrl.alu_sel_imm && ctrl.alu_word_op && ctrl.mul_op == OP_MUL);
+
+        drive(32'h0231_10b3); // mulh x1, x2, x3
+        check("MULH selects the signed high-half multiply operation",
+              !ctrl.illegal && ctrl.reg_write && ctrl.wb_sel == WB_ALU
+              && !ctrl.alu_sel_imm && !ctrl.alu_word_op && ctrl.mul_op == OP_MULH);
+
         drive(32'h0041_2083); // lw x1, 4(x2)
         check("LW selects a signed word load and memory writeback",
               ctrl.mem_read && !ctrl.mem_write && ctrl.mem_size == MEM_WORD
@@ -127,7 +142,7 @@ module tb_control_unit;
               !ctrl.illegal && ctrl.reg_write && ctrl.wb_sel == WB_ALU
               && ctrl.alu_sel_imm && !ctrl.alu_word_op && ctrl.alu_op == ALU_SRA);
 
-        drive(32'h0201_10b3); // invalid SLL funct7, with rd=x1
+        drive(32'h0401_10b3); // invalid SLL funct7, with rd=x1
         check("invalid register SLL funct7 has no register side effect",
               ctrl.illegal && !ctrl.mem_read && !ctrl.mem_write && !ctrl.reg_write);
 

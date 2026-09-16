@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 
 import riscv::*;
-import imul::*;
+import imul_pkg::*;
 
 module tb_booth_encoder_radix4;
     localparam int RANDOM_TESTS = 1000;

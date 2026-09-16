@@ -1,26 +1,5 @@
 import riscv::*;
-
-package imul;
-    localparam int PP_WIDTH = 2 * (XLEN + 1);   // 130
-    localparam int NUM_PP   = (XLEN + 2) / 2;   // 33
-endpackage
-import imul::*;
-// 3 stage pipelined integer multiplier
-// Stage 1: Partial product generation with radix-4 booth encoding
-// Stage 2: Dadda tree reduction
-// Stage 3: Final addition stage, MUL/MULH/MULW selection
-// This multiplier is actually XLEN+1 bits to allow for sign extending.
-
-module imul (
-    input logic             clk,
-    input logic             rst_n,
-    input ctrl_t            ctrl_i,
-    input logic [XLEN-1:0]  op1_data_i,
-    input logic [XLEN-1:0]  op2_data_i,
-    output logic [XLEN-1:0] res_o
-);
-
-endmodule : imul
+import imul_pkg::*;
 
 module booth_encoder_radix4 (
     input logic signed [XLEN:0]             multiplicand_i,

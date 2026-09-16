@@ -1,3 +1,3 @@
 rtl/riscv.svh
-rtl/fetch.sv
+rtl/frontend/fetch.sv
 tb/tb_fetch.sv

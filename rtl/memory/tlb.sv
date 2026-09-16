@@ -169,6 +169,15 @@ module translation_lookaside_buffer (
         if (lookup_en_i && !tlb_hit && !lookup_page_fault) begin
             miss_o = '1;
         end
+
+        // A lookup or PTW fault is a completed translation result, not an
+        // outstanding walk.  Release the pipeline so MEM/WB can capture the
+        // fault and the trap controller can redirect; otherwise the faulting
+        // memory operation remains stalled forever in MEM.
+        if (lookup_page_fault || walk_page_fault_i) begin
+            ptw_stall_o = '0;
+            miss_o = '0;
+        end
     end
 
     assign page_fault_o = lookup_page_fault | walk_page_fault_i;

@@ -209,7 +209,7 @@ check_timing_intent                             > [file join $out_dir timing_int
 report_area                                     > [file join $out_dir area.rpt]
 report_power                                    > [file join $out_dir power.rpt]
 report_gates                                    > [file join $out_dir gates.rpt]
-report_messages -severity error                 > [file join $out_dir errors.rpt]
+report_msg -error                                > [file join $out_dir errors.rpt]
 write_hdl                                       > [file join $out_dir ${TOP}_mapped.v]
 write_sdc                                       > [file join $out_dir ${TOP}_mapped.sdc]
 write_design -innovus -base_name [file join $out_dir $TOP]

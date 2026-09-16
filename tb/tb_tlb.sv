@@ -281,6 +281,7 @@ module tb_tlb;
         repeat (3) @(posedge clk);
         #1;
         check("reserved W-without-R PTE faults", page_fault && !paddr_ready);
+        check("PTW fault releases the stalled requester", !ptw_stall);
         @(posedge clk); #1;
         check("faulted walk drops its outstanding request", !ptw_mem_read);
 
@@ -293,6 +294,7 @@ module tb_tlb;
         lookup_en = 1'b1;
         @(posedge clk); #1;
         check("non-leaf U bit is rejected", page_fault);
+        check("reserved non-leaf fault releases the requester", !ptw_stall);
 
         // Sv39 addresses must be sign-extended from bit 38 before any walk.
         reset_tlb();
@@ -301,6 +303,7 @@ module tb_tlb;
         #1;
         check("non-canonical Sv39 address faults without a PTW request",
               page_fault && !ptw_mem_read && !paddr_ready);
+        check("non-canonical fault does not stall the requester", !ptw_stall);
 
         if (tests_failed == 0) begin
             $display("tb_tlb: all %0d checks passed", tests_run);

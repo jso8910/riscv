@@ -71,7 +71,7 @@ Original Author: Shay Gal-on
 #endif
 #endif
 #ifndef COMPILER_FLAGS
-#define COMPILER_FLAGS "RV64I bare metal"
+#define COMPILER_FLAGS "RV64I_Zmmul bare metal"
 #endif
 #ifndef MEM_LOCATION
 #define MEM_LOCATION "STATIC"

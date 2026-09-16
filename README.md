@@ -36,6 +36,28 @@ That directory includes QoR, area, power, gate, timing-lint, and error reports,
 an unconstrained-path check, plus the 100 worst setup and hold timing paths by
 default.
 
+### Integer multiplier timing
+
+The multiplier-only flow uses a small registered harness around the multiplier's
+three existing pipeline stages.  It therefore measures register-to-register
+paths for Booth generation plus Dadda stages 1--2, Dadda stages 3--6, and Dadda
+stages 7--8 plus the final adder, without timing the rest of the core:
+
+```sh
+export GENUS_LIB_FILES="/path/to/standard_cells_ss.lib"
+synth/run_genus_imul_timing.sh
+```
+
+The flow binary-searches the period from 0.100 ns through 10.000 ns to a 5 ps
+resolution; override `SEARCH_MIN_PERIOD_NS`, `SEARCH_MAX_PERIOD_NS`, or
+`SEARCH_RESOLUTION_NS` in `synth/genus_config.tcl` if necessary.  Its final
+period and frequency are in `max_frequency_summary.rpt`, and every trial is
+logged in `search_*.rpt`.  The stage-specific reports in
+`build/genus/imul_timing/timing_cycle{1,2,3}.rpt` show each stage's worst
+paths; compare their data-arrival times or slacks to judge balance.
+`timing_all_reg_to_reg.rpt` contains the 100 overall longest paths, including
+the endpoint bits and mapped cells on each path.
+
 ## CoreMark and Embench
 
 The CoreMark and Embench-IoT sources are pinned in `third_party/` as Git

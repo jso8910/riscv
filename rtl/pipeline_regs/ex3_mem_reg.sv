@@ -3,32 +3,32 @@ import riscv::*;
 // Pipeline control logic is commented more completely in if_id_reg.sv. The control logic is the
 // same between all pipeline registers.
 
-module ex_mem_reg (
+module ex3_mem_reg (
     input logic              clk,
     input logic              rst_n,
 
     input logic              stall_i,
     input logic              mem_flush_i,
-    output logic             ex_flush_o,
+    output logic             ex3_flush_o,
     
 
-    // Upstream interface (execute)
-    input logic              ex_valid_i,
-    output logic             ex_ready_o,
-    input logic [XLEN-1:0]   ex_pc_i,
-    input logic [XLEN-1:0]   ex_pred_pc_i,
-    input ctrl_t             ex_ctrl_i,
-    input sfence_sel_t       ex_sfence_sel_i,
-    input logic [XLEN-1:0]   ex_addr_i,
-    input logic [XLEN-1:0]   ex_store_data_i,
-    input logic [XLEN-1:0]   ex_rd_data_i,
-    input logic [XLEN-1:0]   ex_csr_data_write_i,
-    input logic [XLEN-1:0]   ex_csr_operand_i,
-    input mem_fault_t        ex_fetch_mem_fault_i,
-    input logic [XLEN-1:0]   ex_fetch_mem_fault_addr_i,
-    input logic              ex_fetch_page_fault_i,
-    input logic [XLEN-1:0]   ex_fetch_page_fault_addr_i,
-    input logic              ex_address_misaligned_i,
+    // Upstream interface (execute 3)
+    input logic              ex3_valid_i,
+    output logic             ex3_ready_o,
+    input logic [XLEN-1:0]   ex3_pc_i,
+    input logic [XLEN-1:0]   ex3_pred_pc_i,
+    input ctrl_t             ex3_ctrl_i,
+    input sfence_sel_t       ex3_sfence_sel_i,
+    input logic [XLEN-1:0]   ex3_addr_i,
+    input logic [XLEN-1:0]   ex3_store_data_i,
+    input logic [XLEN-1:0]   ex3_rd_data_i,
+    input logic [XLEN-1:0]   ex3_csr_data_write_i,
+    input logic [XLEN-1:0]   ex3_csr_operand_i,
+    input mem_fault_t        ex3_fetch_mem_fault_i,
+    input logic [XLEN-1:0]   ex3_fetch_mem_fault_addr_i,
+    input logic              ex3_fetch_page_fault_i,
+    input logic [XLEN-1:0]   ex3_fetch_page_fault_addr_i,
+    input logic              ex3_address_misaligned_i,
 
     // Downstream interface (memory)
     input logic               mem_ready_i,
@@ -48,8 +48,8 @@ module ex_mem_reg (
     output logic [XLEN-1:0]   mem_fetch_page_fault_addr_o,
     output logic              mem_address_misaligned_o
 );
-    assign ex_flush_o = mem_flush_i;
-    assign ex_ready_o = (mem_ready_i || !mem_valid_o) && !stall_i;
+    assign ex3_flush_o = mem_flush_i;
+    assign ex3_ready_o = (mem_ready_i || !mem_valid_o) && !stall_i;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -71,25 +71,25 @@ module ex_mem_reg (
         end else if (mem_flush_i) begin
             mem_valid_o <= '0;
         end else begin
-            if (ex_ready_o && ex_valid_i) begin
+            if (ex3_ready_o && ex3_valid_i) begin
                 mem_valid_o <= '1;
-                mem_pc_o <= ex_pc_i;
-                mem_pred_pc_o <= ex_pred_pc_i;
-                mem_ctrl_o <= ex_ctrl_i;
-                mem_sfence_sel_o <= ex_sfence_sel_i;
-                mem_addr_o <= ex_addr_i;
-                mem_store_data_o <= ex_store_data_i;
-                mem_rd_data_o <= ex_rd_data_i;
-                mem_csr_data_write_o <= ex_csr_data_write_i;
-                mem_csr_operand_o <= ex_csr_operand_i;
-                mem_fetch_mem_fault_o <= ex_fetch_mem_fault_i;
-                mem_fetch_mem_fault_addr_o <= ex_fetch_mem_fault_addr_i;
-                mem_fetch_page_fault_o <= ex_fetch_page_fault_i;
-                mem_fetch_page_fault_addr_o <= ex_fetch_page_fault_addr_i;
-                mem_address_misaligned_o <= ex_address_misaligned_i;
+                mem_pc_o <= ex3_pc_i;
+                mem_pred_pc_o <= ex3_pred_pc_i;
+                mem_ctrl_o <= ex3_ctrl_i;
+                mem_sfence_sel_o <= ex3_sfence_sel_i;
+                mem_addr_o <= ex3_addr_i;
+                mem_store_data_o <= ex3_store_data_i;
+                mem_rd_data_o <= ex3_rd_data_i;
+                mem_csr_data_write_o <= ex3_csr_data_write_i;
+                mem_csr_operand_o <= ex3_csr_operand_i;
+                mem_fetch_mem_fault_o <= ex3_fetch_mem_fault_i;
+                mem_fetch_mem_fault_addr_o <= ex3_fetch_mem_fault_addr_i;
+                mem_fetch_page_fault_o <= ex3_fetch_page_fault_i;
+                mem_fetch_page_fault_addr_o <= ex3_fetch_page_fault_addr_i;
+                mem_address_misaligned_o <= ex3_address_misaligned_i;
             end else if (mem_ready_i) begin
                 mem_valid_o <= '0;
             end
         end
     end
-endmodule : ex_mem_reg
+endmodule : ex3_mem_reg

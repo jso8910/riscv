@@ -3,8 +3,8 @@ $schema: config_schema.json#
 kind: architecture configuration
 type: fully configured
 
-name: jason-rv64isu-sv39
-description: RV64I with M/S/U privilege modes, Sstc timer compare, Sv39 translation, and Svade A/D faults
+name: jason-rv64izmmulsu-sv39
+description: RV64I with Zmmul and S/U privilege modes, Sstc timer compare, Sv39 translation, and Svade A/D faults
 
 params:
   MXLEN: 64
@@ -203,6 +203,8 @@ params:
 implemented_extensions:
   - name: I
     version: "= 2.1"
+  - name: Zmmul
+    version: "= 1.0"
   - name: Zicntr
     version: "= 2.0"
   - name: Zihpm

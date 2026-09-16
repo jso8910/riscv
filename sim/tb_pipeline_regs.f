@@ -1,6 +1,9 @@
 rtl/riscv.svh
-rtl/if_id_reg.sv
-rtl/id_ex_reg.sv
-rtl/ex_mem_reg.sv
-rtl/mem_wb_reg.sv
+rtl/backend/imul/imul_pkg.svh
+rtl/pipeline_regs/if_id_reg.sv
+rtl/pipeline_regs/id_ex1_reg.sv
+rtl/pipeline_regs/ex1_ex2_reg.sv
+rtl/pipeline_regs/ex2_ex3_reg.sv
+rtl/pipeline_regs/ex3_mem_reg.sv
+rtl/pipeline_regs/mem_wb_reg.sv
 tb/tb_pipeline_regs.sv

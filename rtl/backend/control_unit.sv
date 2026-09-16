@@ -41,6 +41,8 @@ module control_unit (
         ctrl_o.alu_sel_imm = '1;
         ctrl_o.alu_word_op = '0;
 
+        ctrl_o.mul_op = NO_MUL;
+
         ctrl_o.branch = '0;
         ctrl_o.branch_cond = COND_EQ;
         ctrl_o.jal = '0;
@@ -176,6 +178,12 @@ module control_unit (
                 end
 
                 casez ({funct3, funct7, ctrl_o.alu_sel_imm, ctrl_o.alu_word_op})
+                    // M extension
+                    {MUL, FUNCT7_MULDIV, 1'b0, 1'b?} : ctrl_o.mul_op = OP_MUL;
+                    {MULH, FUNCT7_MULDIV, 1'b0, 1'b0} : ctrl_o.mul_op = OP_MULH;
+                    {MULHU, FUNCT7_MULDIV, 1'b0, 1'b0} : ctrl_o.mul_op = OP_MULHU;
+                    {MULHSU, FUNCT7_MULDIV, 1'b0, 1'b0} : ctrl_o.mul_op = OP_MULHSU;
+
                     // Add/sub
                     {ADD_SUB, FUNCT7_ANY, 1'b1, 1'b?} : ctrl_o.alu_op = ALU_ADD;
                     {ADD_SUB, FUNCT7_BASE, 1'b0, 1'b?} : ctrl_o.alu_op = ALU_ADD;

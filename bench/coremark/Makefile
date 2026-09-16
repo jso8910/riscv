@@ -7,7 +7,7 @@ CLOCK_HZ ?= 1000000
 
 COMMON_FLAGS := -std=gnu17 -O2 -ffreestanding -fno-builtin -fno-pic -fno-stack-protector \
   -ffunction-sections -fdata-sections -msmall-data-limit=0 \
-  -march=rv64i_zicsr_zicntr -mabi=lp64 -mcmodel=medany \
+  -march=rv64i_zmmul_zicsr_zicntr -mabi=lp64 -mcmodel=medany \
   -I$(COREMARK_DIR) -I$(ROOT)/bench/coremark -I$(ROOT)/bench/platform/include
 CFLAGS := $(COMMON_FLAGS) -DPERFORMANCE_RUN=1 -DITERATIONS=$(ITERATIONS) \
   -DCOREMARK_CLOCK_HZ=$(CLOCK_HZ)ULL
