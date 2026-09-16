@@ -331,6 +331,6 @@ module control_unit (
         end
 
         // Control invariants
-        assert(!(ctrl_o.mem_read && ctrl_o.mem_write)) else $fatal(1, "Should not be reading and writing through the same memory channel at the same time!");
+        assert (!(ctrl_o.mem_read && ctrl_o.mem_write));
     end
 endmodule : control_unit

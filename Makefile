@@ -4,10 +4,13 @@ SHELL := /bin/bash
 IVERILOG ?= iverilog
 VVP ?= vvp
 VERILATOR ?= verilator
+SBY ?= sby
 IVERILOG_FLAGS := -g2012
 IVERILOG_WARN_FILTER := sed '/sorry: constant selects in always_[*] processes are not fully supported/d'
 
 BUILD_DIR := build
+FORMAL_SBY ?= formal/riscv_core.sby
+FORMAL_WORKDIR ?= $(BUILD_DIR)/formal
 TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-dadda-stage test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test test-pipeline-fault-regression
 TEST_TARGET_COUNT := $(words $(TEST_TARGETS))
 
@@ -24,7 +27,7 @@ ARCH_TEST_FAST ?= True
 ARCH_TEST_TIMEOUT ?= 60
 PIPELINE_FAULT_MAX_CYCLES ?= 100000
 
-.PHONY: all core test test-all test-arch test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-dadda-stage test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test-pipeline-fault-regression bench-coremark bench-coremark-run bench-embench bench-embench-run clean
+.PHONY: all core formal test test-all test-arch test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-dadda-stage test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test-pipeline-fault-regression bench-coremark bench-coremark-run bench-embench bench-embench-run clean
 
 all: core
 
@@ -33,6 +36,11 @@ $(BUILD_DIR):
 
 core: $(BUILD_DIR)
 	$(VERILATOR) --lint-only --sv -Wno-fatal --top-module riscv_core -f sim/rtl.f
+
+# SymbiYosys drives the proof. Its configuration loads yosys-slang, so the
+# SystemVerilog is elaborated by Slang instead of Yosys's limited SV parser.
+formal:
+	$(SBY) -f -d $(FORMAL_WORKDIR) $(FORMAL_SBY)
 
 define RUN_TEST
 	$(VERILATOR) --binary --timing --sv -Wno-fatal --top-module $(1) --Mdir $(BUILD_DIR)/obj_$(1) -f $(2)

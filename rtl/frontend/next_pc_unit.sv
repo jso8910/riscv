@@ -35,7 +35,7 @@ module next_pc_unit (
             SRC_SEPC : pc_branch = sepc_i;
             default : begin
                 pc_branch = alu_res_i;
-                $fatal(1);
+                assert (1'b0);
             end
         endcase
         branch_taken = 1'b0;

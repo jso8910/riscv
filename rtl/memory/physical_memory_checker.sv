@@ -101,7 +101,7 @@ module physical_memory_checker (
             MREAD : return PMA_READ;
             MFETCH : return PMA_FETCH;
             MWRITE : return PMA_WRITE;
-            default : $fatal(1);
+            default : assert (1'b0);
         endcase
     endfunction
 
@@ -110,7 +110,7 @@ module physical_memory_checker (
             MREAD : return PMP_READ;
             MFETCH : return PMP_FETCH;
             MWRITE : return PMP_WRITE;
-            default : $fatal(1);
+            default : assert (1'b0);
         endcase
     endfunction
 
@@ -189,9 +189,9 @@ module physical_memory_checker (
                         end
                         MEM_NONE : begin
                             // Should not have a valid MEM_NONE access
-                            $fatal(1);
+                            assert (1'b0);
                         end
-                        default: $fatal(1);
+                        default: assert (1'b0);
                     endcase
 
                     // =========
@@ -224,7 +224,7 @@ module physical_memory_checker (
                                 end
                             end
                         end
-                        default : $fatal(1);
+                        default : assert (1'b0);
                     endcase
 
                     case (pma_alignment(access_addresses[i][0]))

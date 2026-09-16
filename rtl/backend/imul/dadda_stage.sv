@@ -116,7 +116,7 @@ module dadda_stage #(
                 if (INPUTS > INPUT_HEIGHT || INPUTS < 0 ||
                     3 * NUM_FULL + 2 * NUM_HALF > INPUTS ||
                     LOCAL_HEIGHT < 0 || OUTPUTS > OUTPUT_HEIGHT) begin
-                    $fatal(1, "Invalid Dadda plan at column %0d", column);
+                    assert (1'b0);
                 end
             end
 

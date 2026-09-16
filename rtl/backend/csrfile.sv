@@ -448,7 +448,7 @@ module csrfile (
                     SATP : satp <= legalize_csr_write(SATP, csr_data_i, satp);
                     // If we get here, something has gone wrong (ie we are either allowing a CSR address
                     // we shouldn't, or not all CSRs have been implemented)
-                    default: $fatal(1, "CSR write CASE statement missing CSR: %h", ctrl_i.csr_addr);
+                    default: assert (1'b0);
                 endcase
                 end
             end

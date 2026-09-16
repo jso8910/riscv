@@ -1,0 +1,48 @@
+[options]
+mode bmc
+depth 20
+
+[engines]
+smtbmc z3
+
+[script]
+plugin -i /usr/share/yosys/plugins/slang.so
+read_slang --single-unit --top riscv_core_formal -D FORMAL -f sim/core_rtl.f formal/riscv_core_formal.sv
+prep -top riscv_core_formal
+
+[files]
+sim/core_rtl.f sim/core_rtl.f
+formal/riscv_core_formal.sv formal/riscv_core_formal.sv
+rtl/riscv.svh rtl/riscv.svh
+rtl/backend/imul/imul_pkg.svh rtl/backend/imul/imul_pkg.svh
+rtl/backend/imul/booth_partial_products.sv rtl/backend/imul/booth_partial_products.sv
+rtl/backend/imul/dadda_stage.sv rtl/backend/imul/dadda_stage.sv
+rtl/backend/imul/imul.sv rtl/backend/imul/imul.sv
+rtl/backend/alu.sv rtl/backend/alu.sv
+rtl/frontend/next_pc_unit.sv rtl/frontend/next_pc_unit.sv
+rtl/frontend/immediate_gen.sv rtl/frontend/immediate_gen.sv
+rtl/backend/control_unit.sv rtl/backend/control_unit.sv
+rtl/backend/csr_val_gen.sv rtl/backend/csr_val_gen.sv
+rtl/backend/sfence_selector.sv rtl/backend/sfence_selector.sv
+rtl/frontend/pc_prediction.sv rtl/frontend/pc_prediction.sv
+rtl/frontend/fetch.sv rtl/frontend/fetch.sv
+rtl/pipeline_regs/if_id_reg.sv rtl/pipeline_regs/if_id_reg.sv
+rtl/pipeline_regs/id_ex1_reg.sv rtl/pipeline_regs/id_ex1_reg.sv
+rtl/backend/hazard_unit.sv rtl/backend/hazard_unit.sv
+rtl/backend/forwarding_unit.sv rtl/backend/forwarding_unit.sv
+rtl/pipeline_regs/ex1_ex2_reg.sv rtl/pipeline_regs/ex1_ex2_reg.sv
+rtl/pipeline_regs/ex2_ex3_reg.sv rtl/pipeline_regs/ex2_ex3_reg.sv
+rtl/pipeline_regs/ex3_mem_reg.sv rtl/pipeline_regs/ex3_mem_reg.sv
+rtl/pipeline_regs/mem_wb_reg.sv rtl/pipeline_regs/mem_wb_reg.sv
+rtl/memory/sram.sv rtl/memory/sram.sv
+rtl/backend/regfile.sv rtl/backend/regfile.sv
+rtl/backend/csrfile.sv rtl/backend/csrfile.sv
+rtl/memory/memory_controller.sv rtl/memory/memory_controller.sv
+rtl/backend/trap_controller.sv rtl/backend/trap_controller.sv
+rtl/backend/trap_pc.sv rtl/backend/trap_pc.sv
+rtl/memory/physical_memory_checker.sv rtl/memory/physical_memory_checker.sv
+rtl/memory/tlb.sv rtl/memory/tlb.sv
+rtl/memory/page_table_walker.sv rtl/memory/page_table_walker.sv
+rtl/memory/memory_management_unit.sv rtl/memory/memory_management_unit.sv
+rtl/backend/timer_interrupt.sv rtl/backend/timer_interrupt.sv
+rtl/core.sv rtl/core.sv

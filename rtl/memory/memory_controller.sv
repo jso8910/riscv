@@ -39,7 +39,7 @@ module memory_controller (
                             MEM_WORD : we_o = 8'b0000_1111;
                             MEM_DOUBLE : we_o = 8'b1111_1111;
                             MEM_NONE : we_o = '0;
-                            default : $fatal(1);
+                            default : assert (1'b0);
                         endcase
                     end
                 endcase
@@ -65,7 +65,7 @@ module memory_controller (
                             MEM_WORD : res_o.data = word_read;
                             MEM_DOUBLE : res_o.data = double_read;
                             MEM_NONE : res_o.data = '0;
-                            default : $fatal(1);
+                            default : assert (1'b0);
                         endcase
                     end
                 endcase

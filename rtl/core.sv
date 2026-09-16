@@ -323,7 +323,7 @@ module riscv_core (
         case (ex1_ctrl.op1_src)
             RS1 : ex1_op1 = ex1_rs1_data;
             PC : ex1_op1 = ex1_pc;
-            default: $fatal(1);
+            default: assert (1'b0);
         endcase
     end
 
@@ -361,7 +361,7 @@ module riscv_core (
             WB_IMM : ex1_rd_data = ex1_imm;
             WB_PC_PLUS_4 : ex1_rd_data = ex1_pc + PC_INC;
             WB_CSR : ex1_rd_data = ex1_csr_data_read;
-            default : $fatal(1);
+            default : assert (1'b0);
         endcase
     end
 
@@ -524,6 +524,109 @@ module riscv_core (
         .imul_cycle2_i (ex3_imul_intermediate),
         .imul_res_o    (ex3_imul_res)
     );
+
+    // Formal verification of multiplier
+    `ifdef FORMAL
+    function automatic logic formal_mul_op_valid(input mul_op_t mul_op);
+        case (mul_op)
+            NO_MUL, OP_MUL, OP_MULH, OP_MULHU, OP_MULHSU: formal_mul_op_valid = 1'b1;
+            default:                                      formal_mul_op_valid = 1'b0;
+        endcase
+    endfunction
+
+    function automatic logic [XLEN-1:0] formal_mul_result(
+        input ctrl_t             ctrl,
+        input logic [XLEN-1:0]   rs1,
+        input logic [XLEN-1:0]   rs2
+    );
+        logic [2*XLEN-1:0]        unsigned_rs1, unsigned_rs2;
+        logic signed [2*XLEN-1:0] signed_rs1, signed_rs2, product;
+        begin
+            unsigned_rs1 = '0;
+            unsigned_rs2 = '0;
+            signed_rs1 = '0;
+            signed_rs2 = '0;
+            product = '0;
+
+            case (ctrl.mul_op)
+                NO_MUL: formal_mul_result = '0;
+                OP_MUL: begin
+                    unsigned_rs1 = {{XLEN{1'b0}}, rs1};
+                    unsigned_rs2 = {{XLEN{1'b0}}, rs2};
+                    product = unsigned_rs1 * unsigned_rs2;
+                    formal_mul_result = ctrl.alu_word_op
+                        ? {{32{product[31]}}, product[31:0]}
+                        : product[XLEN-1:0];
+                end
+                OP_MULHU: begin
+                    unsigned_rs1 = {{XLEN{1'b0}}, rs1};
+                    unsigned_rs2 = {{XLEN{1'b0}}, rs2};
+                    product = unsigned_rs1 * unsigned_rs2;
+                    formal_mul_result = product[2*XLEN-1:XLEN];
+                end
+                OP_MULH: begin
+                    signed_rs1 = $signed({{XLEN{rs1[XLEN-1]}}, rs1});
+                    signed_rs2 = $signed({{XLEN{rs2[XLEN-1]}}, rs2});
+                    product = signed_rs1 * signed_rs2;
+                    formal_mul_result = product[2*XLEN-1:XLEN];
+                end
+                OP_MULHSU: begin
+                    signed_rs1 = $signed({{XLEN{rs1[XLEN-1]}}, rs1});
+                    signed_rs2 = $signed({{XLEN{1'b0}}, rs2});
+                    product = signed_rs1 * signed_rs2;
+                    formal_mul_result = product[2*XLEN-1:XLEN];
+                end
+                default: formal_mul_result = '0;
+            endcase
+        end
+    endfunction
+
+    logic                 formal_reset_seen = 1'b0;
+    logic                 formal_ex2_valid, formal_ex3_valid;
+    logic [XLEN-1:0]      formal_ex2_mul_result, formal_ex3_mul_result;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            formal_reset_seen <= 1'b1;
+            formal_ex2_valid <= 1'b0;
+            formal_ex3_valid <= 1'b0;
+            formal_ex2_mul_result <= '0;
+            formal_ex3_mul_result <= '0;
+        end else begin
+            // Check the old EX3 contents before modelling the next clock's
+            // transfers. The shadow valid bit must exactly track EX3.
+            if (formal_reset_seen) begin
+                assert (ex3_valid == formal_ex3_valid);
+                if (formal_ex3_valid) begin
+                    assert (formal_mul_op_valid(ex3_ctrl.mul_op));
+                    assert (!ex3_ctrl.alu_word_op || ex3_ctrl.mul_op == NO_MUL || ex3_ctrl.mul_op == OP_MUL);
+                    assert (ex3_imul_res == formal_ex3_mul_result);
+                end
+            end
+
+            // Mirror ex1_ex2_reg's flush / transfer / bubble priority.
+            if (ex2_flush) begin
+                formal_ex2_valid <= 1'b0;
+            end else if (ex1_ready && ex1_valid) begin
+                formal_ex2_valid <= 1'b1;
+                formal_ex2_mul_result <= formal_mul_result(ex1_ctrl, ex1_rs1_data, ex1_rs2_data);
+            end else if (ex2_ready) begin
+                formal_ex2_valid <= 1'b0;
+            end
+
+            // Mirror ex2_ex3_reg's flush / transfer / bubble priority.
+            if (ex3_flush) begin
+                formal_ex3_valid <= 1'b0;
+            end else if (ex2_ready && ex2_valid) begin
+                formal_ex3_valid <= 1'b1;
+                formal_ex3_mul_result <= formal_ex2_mul_result;
+            end else if (ex3_ready) begin
+                formal_ex3_valid <= 1'b0;
+            end
+        end
+    end
+    `endif
+
     always_comb begin
         ex3_rd_data = ex3_rd_data_raw;
         if (ex3_ctrl.mul_op != NO_MUL)

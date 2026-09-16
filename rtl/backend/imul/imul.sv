@@ -51,7 +51,7 @@ module imul_cycle1 (
             default: begin
                 op1_data = $signed({1'b0, op1_data_i});
                 op2_data = $signed({1'b0, op2_data_i});
-                $fatal(1);
+                assert (1'b0);
             end
         endcase
     end
@@ -212,7 +212,7 @@ module imul_cycle3 (
             end
             default : begin
                 imul_res_o = '0;
-                $fatal(1);
+                assert (1'b0);
             end
         endcase
     end

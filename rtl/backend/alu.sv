@@ -12,6 +12,7 @@ module alu (
     logic [31:0] op1_32, op2_32, res32;
     logic signed [31:0] op1_32signed, op2_32signed;
     logic signed [XLEN-1:0] op1_signed, op2_signed;
+    logic alu_op_found;
     logic [5:0] shamt;
 
     // Wire assignments
@@ -29,6 +30,7 @@ module alu (
         // Default value to prevent inferring a latch
         res = XLEN'(1'b0);
         res32 = 32'b0;
+        alu_op_found = '1;
         if (ctrl_i.alu_word_op) begin
             case (ctrl_i.alu_op)
                 ALU_ADD : res32 = op1_32 + op2_32;
@@ -42,7 +44,10 @@ module alu (
                 ALU_SRL : res32 = op1_32 >> shamt[4:0];
                 // TODO is this correct?
                 ALU_SRA : res32 = unsigned'(op1_32signed >>> shamt[4:0]);
-                default : $fatal(1);
+                default : begin
+                    alu_op_found = '0;
+                    assert (1'b0);
+                end
             endcase
             res_o = {{32{res32[31]}}, res32};
         end else begin
@@ -58,9 +63,24 @@ module alu (
                 ALU_SRL : res = op1 >> shamt;
                 // TODO is this correct?
                 ALU_SRA : res = unsigned'(op1_signed >>> shamt);
-                default : $fatal(1);
+                default : begin
+                    alu_op_found = '0;
+                    assert (1'b0);
+                end
             endcase
             res_o = res;
         end
     end
+
+    // Formal verification
+    `ifdef FORMAL
+    always_comb begin
+        assert (alu_op_found);
+
+        // Word operations must sign-extend their low 32-bit result.
+        if (ctrl_i.alu_word_op) begin
+            assert (res_o == {{(XLEN-32){res_o[31]}}, res_o[31:0]});
+        end
+    end
+    `endif
 endmodule : alu

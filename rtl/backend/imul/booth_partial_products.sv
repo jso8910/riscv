@@ -18,7 +18,7 @@ module booth_encoder_radix4 (
             3'b011         : partial_o = PP_WIDTH'(multiplicand_x2);
             3'b100         : partial_o = -PP_WIDTH'(multiplicand_x2);
             3'b101, 3'b110 : partial_o = -PP_WIDTH'(multiplicand_i);
-            default: $fatal(1, "Unreachable");
+            default: assert (1'b0);
         endcase
     end
 endmodule : booth_encoder_radix4

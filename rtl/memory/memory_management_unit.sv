@@ -125,7 +125,7 @@ module memory_management_unit (
                 MFETCH : begin
                     page_fault_addr_a_o = raw_req[0].virtual_address;
                     fetch_page_fault_o = '1;
-                    $fatal(1, "Memory port 0 should not be fetching instructions!");
+                    assert (1'b0);
                 end
                 MWRITE : begin
                     page_fault_addr_a_o = raw_req[0].virtual_address;
@@ -149,12 +149,12 @@ module memory_management_unit (
                 MWRITE : begin
                     page_fault_addr_b_o = raw_req[1].virtual_address;
                     store_page_fault_o = '1; 
-                    $fatal(1, "Memory port 1 should not be writing data!");
+                    assert (1'b0);
                 end
                 MREAD : begin
                     page_fault_addr_b_o = raw_req[1].virtual_address;
                     load_page_fault_o = '1;
-                    $fatal(1, "Memory port 0 should not be reading data!");
+                    assert (1'b0);
                 end
                 default : ;
             endcase
