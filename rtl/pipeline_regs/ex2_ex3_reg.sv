@@ -29,7 +29,7 @@ module ex2_ex3_reg (
     input logic                         ex2_fetch_page_fault_i,
     input logic [XLEN-1:0]              ex2_fetch_page_fault_addr_i,
     input logic                         ex2_address_misaligned_i,
-    input logic [MAX_HEIGHT[5]-1:0]     ex2_imul_intermediate_i [PP_WIDTH-1:0],
+    input logic [MAX_HEIGHT[6]-1:0]     ex2_imul_intermediate_i [PP_WIDTH-1:0],
 
     // Downstream interface (execute 3)
     input logic                         ex3_ready_i,
@@ -48,7 +48,7 @@ module ex2_ex3_reg (
     output logic                        ex3_fetch_page_fault_o,
     output logic [XLEN-1:0]             ex3_fetch_page_fault_addr_o,
     output logic                        ex3_address_misaligned_o,
-    output logic [MAX_HEIGHT[5]-1:0]    ex3_imul_intermediate_o [PP_WIDTH-1:0]
+    output logic [MAX_HEIGHT[6]-1:0]    ex3_imul_intermediate_o [PP_WIDTH-1:0]
 );
     assign ex2_flush_o = ex3_flush_i;
     assign ex2_ready_o = (ex3_ready_i || !ex3_valid_o) && !stall_i;

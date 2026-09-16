@@ -8,15 +8,15 @@ module imul_cycle1_timing_wrapper (
     input  riscv::ctrl_t     ctrl_i,
     input  logic [riscv::XLEN-1:0] op1_data_i,
     input  logic [riscv::XLEN-1:0] op2_data_i,
-    output logic [imul_pkg::MAX_HEIGHT[1]-1:0] imul_cycle1_o [imul_pkg::PP_WIDTH-1:0]
+    output logic [imul_pkg::MAX_HEIGHT[0]-1:0] imul_cycle1_o [imul_pkg::PP_WIDTH-1:0]
 );
     import riscv::*;
     import imul_pkg::*;
 
     ctrl_t stage0_ctrl_q;
     logic [XLEN-1:0] stage0_op1_q, stage0_op2_q;
-    logic [MAX_HEIGHT[1]-1:0] stage1_q [PP_WIDTH-1:0];
-    logic [MAX_HEIGHT[1]-1:0] stage1_d [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[0]-1:0] stage1_q [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[0]-1:0] stage1_d [PP_WIDTH-1:0];
 
     imul_cycle1 u_imul_cycle1 (
         .ctrl_i        (stage0_ctrl_q),
@@ -37,14 +37,14 @@ endmodule : imul_cycle1_timing_wrapper
 
 module imul_cycle2_timing_wrapper (
     input  logic             clk,
-    input  logic [imul_pkg::MAX_HEIGHT[1]-1:0] imul_cycle1_i [imul_pkg::PP_WIDTH-1:0],
-    output logic [imul_pkg::MAX_HEIGHT[5]-1:0] imul_cycle2_o [imul_pkg::PP_WIDTH-1:0]
+    input  logic [imul_pkg::MAX_HEIGHT[0]-1:0] imul_cycle1_i [imul_pkg::PP_WIDTH-1:0],
+    output logic [imul_pkg::MAX_HEIGHT[6]-1:0] imul_cycle2_o [imul_pkg::PP_WIDTH-1:0]
 );
     import imul_pkg::*;
 
-    logic [MAX_HEIGHT[1]-1:0] stage1_q [PP_WIDTH-1:0];
-    logic [MAX_HEIGHT[5]-1:0] stage2_q [PP_WIDTH-1:0];
-    logic [MAX_HEIGHT[5]-1:0] stage2_d [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[0]-1:0] stage1_q [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[6]-1:0] stage2_q [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[6]-1:0] stage2_d [PP_WIDTH-1:0];
 
     imul_cycle2 u_imul_cycle2 (
         .imul_cycle1_i (stage1_q),
@@ -62,14 +62,14 @@ endmodule : imul_cycle2_timing_wrapper
 module imul_cycle3_timing_wrapper (
     input  logic             clk,
     input  riscv::ctrl_t     ctrl_i,
-    input  logic [imul_pkg::MAX_HEIGHT[5]-1:0] imul_cycle2_i [imul_pkg::PP_WIDTH-1:0],
+    input  logic [imul_pkg::MAX_HEIGHT[6]-1:0] imul_cycle2_i [imul_pkg::PP_WIDTH-1:0],
     output logic [riscv::XLEN-1:0] imul_res_o
 );
     import riscv::*;
     import imul_pkg::*;
 
     ctrl_t stage2_ctrl_q;
-    logic [MAX_HEIGHT[5]-1:0] stage2_q [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[6]-1:0] stage2_q [PP_WIDTH-1:0];
     logic [XLEN-1:0] stage3_q, stage3_d;
 
     imul_cycle3 u_imul_cycle3 (

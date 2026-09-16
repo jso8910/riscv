@@ -6,16 +6,18 @@ import imul_pkg::*;
 // Stage 3: Final addition stage, MUL/MULH/MULW selection
 // This multiplier is actually XLEN+1 bits to allow for sign extending.
 // The exact cycles for the pipeline vary, but the current plan is this:
-// Cycle 1: Partial product + 2 stages of Dadda reduction (33 -> 19)
-// Cycle 2: 4 stages of reduction (19 -> 4)
-// Cycle 3: 2 stages of reduction (4 -> 2) + 130 bit adder
-// I'll need to perform timing analysis with synthesis to ensure each cycle is actually even.
+// Cycle 1: Partial product + 1 stage of Dadda reduction (33 -> 28)
+// Cycle 2: 6 stages of reduction (28 -> 3)
+// Cycle 3: 1 stage of reduction (3 -> 2) + 130 bit adder
+// I performed timing analysis to back this up and get each cycle to be as even as possible. Current
+// critical path is ____ ps for cycle 1, ____ ps for cycle 2, and ____ ps for cycle 3.
+            // TODO: fill that in
 
 module imul_cycle1 (
     input ctrl_t                     ctrl_i,
     input logic [XLEN-1:0]           op1_data_i,
     input logic [XLEN-1:0]           op2_data_i,
-    output logic [MAX_HEIGHT[1]-1:0] imul_cycle1_o [PP_WIDTH-1:0]
+    output logic [MAX_HEIGHT[0]-1:0] imul_cycle1_o [PP_WIDTH-1:0]
 );
     logic signed [XLEN:0] op1_data, op2_data;
     always_comb begin
@@ -82,6 +84,13 @@ module imul_cycle1 (
         .columns_o(dadda_columns_1)
     );
 
+    assign imul_cycle1_o = dadda_columns_1;
+endmodule : imul_cycle1
+
+module imul_cycle2 (
+    input logic [MAX_HEIGHT[0]-1:0] imul_cycle1_i [PP_WIDTH-1:0],
+    output logic [MAX_HEIGHT[6]-1:0] imul_cycle2_o [PP_WIDTH-1:0]
+);
     // Stage 2
     logic [MAX_HEIGHT[1]-1:0] dadda_columns_2 [PP_WIDTH-1:0];
     dadda_stage #(
@@ -90,17 +99,10 @@ module imul_cycle1 (
         .HEIGHT_BITS          (HEIGHT_BITS),
         .INPUT_COLUMN_HEIGHTS(dadda_stage_height_map(1))
      ) u_dadda_stage_2 (
-        .columns_i(dadda_columns_1),
+        .columns_i(imul_cycle1_i),
         .columns_o(dadda_columns_2)
     );
 
-    assign imul_cycle1_o = dadda_columns_2;
-endmodule : imul_cycle1
-
-module imul_cycle2 (
-    input logic [MAX_HEIGHT[1]-1:0] imul_cycle1_i [PP_WIDTH-1:0],
-    output logic [MAX_HEIGHT[5]-1:0] imul_cycle2_o [PP_WIDTH-1:0]
-);
     // Stage 3
     logic [MAX_HEIGHT[2]-1:0] dadda_columns_3 [PP_WIDTH-1:0];
     dadda_stage #(
@@ -109,7 +111,7 @@ module imul_cycle2 (
         .HEIGHT_BITS          (HEIGHT_BITS),
         .INPUT_COLUMN_HEIGHTS(dadda_stage_height_map(2))
      ) u_dadda_stage_3 (
-        .columns_i(imul_cycle1_i),
+        .columns_i(dadda_columns_2),
         .columns_o(dadda_columns_3)
     );
 
@@ -149,14 +151,6 @@ module imul_cycle2 (
         .columns_o(dadda_columns_6)
     );
 
-    assign imul_cycle2_o = dadda_columns_6;
-endmodule : imul_cycle2
-
-module imul_cycle3 (
-    input ctrl_t                    ctrl_i,
-    input logic [MAX_HEIGHT[5]-1:0] imul_cycle2_i [PP_WIDTH-1:0],
-    output logic [XLEN-1:0]         imul_res_o
-);
     // Stage 7
     logic [MAX_HEIGHT[6]-1:0] dadda_columns_7 [PP_WIDTH-1:0];
     dadda_stage #(
@@ -165,9 +159,18 @@ module imul_cycle3 (
         .HEIGHT_BITS          (HEIGHT_BITS),
         .INPUT_COLUMN_HEIGHTS(dadda_stage_height_map(6))
      ) u_dadda_stage_7 (
-        .columns_i(imul_cycle2_i),
+        .columns_i(dadda_columns_6),
         .columns_o(dadda_columns_7)
     );
+
+    assign imul_cycle2_o = dadda_columns_7;
+endmodule : imul_cycle2
+
+module imul_cycle3 (
+    input ctrl_t                    ctrl_i,
+    input logic [MAX_HEIGHT[6]-1:0] imul_cycle2_i [PP_WIDTH-1:0],
+    output logic [XLEN-1:0]         imul_res_o
+);
 
     // Stage 8
     logic [MAX_HEIGHT[7]-1:0] dadda_columns_8 [PP_WIDTH-1:0];
@@ -177,7 +180,7 @@ module imul_cycle3 (
         .HEIGHT_BITS          (HEIGHT_BITS),
         .INPUT_COLUMN_HEIGHTS(dadda_stage_height_map(7))
      ) u_dadda_stage_8 (
-        .columns_i(dadda_columns_7),
+        .columns_i(imul_cycle2_i),
         .columns_o(dadda_columns_8)
     );
 

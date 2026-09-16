@@ -397,7 +397,7 @@ module riscv_core (
     logic [XLEN-1:0] ex2_pc, ex2_pred_pc, ex2_addr, ex2_store_data,
                      ex2_csr_data_write, ex2_csr_operand, ex2_fetch_mem_fault_addr,
                      ex2_fetch_page_fault_addr;
-    logic [MAX_HEIGHT[1]-1:0] ex1_imul_intermediate [PP_WIDTH-1:0],
+    logic [MAX_HEIGHT[0]-1:0] ex1_imul_intermediate [PP_WIDTH-1:0],
                                ex2_imul_intermediate [PP_WIDTH-1:0];
     sfence_sel_t ex2_sfence_sel;
     mem_fault_t ex2_fetch_mem_fault;
@@ -458,7 +458,7 @@ module riscv_core (
     logic [XLEN-1:0] ex3_pc, ex3_pred_pc, ex3_addr, ex3_store_data, ex3_rd_data_raw,
                      ex3_csr_data_write, ex3_csr_operand, ex3_fetch_mem_fault_addr,
                      ex3_fetch_page_fault_addr;
-    logic [MAX_HEIGHT[5]-1:0] ex2_imul_intermediate_next [PP_WIDTH-1:0],
+    logic [MAX_HEIGHT[6]-1:0] ex2_imul_intermediate_next [PP_WIDTH-1:0],
                                ex3_imul_intermediate [PP_WIDTH-1:0];
     sfence_sel_t ex3_sfence_sel;
     mem_fault_t ex3_fetch_mem_fault;

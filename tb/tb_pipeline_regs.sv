@@ -15,8 +15,8 @@ module tb_pipeline_regs;
     ctrl_t ctrl;
     sfence_sel_t sfence_sel;
     mem_res_t mem_res;
-    logic [MAX_HEIGHT[1]-1:0] ex1_imul_intermediate [PP_WIDTH-1:0];
-    logic [MAX_HEIGHT[5]-1:0] ex2_imul_intermediate [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[0]-1:0] ex1_imul_intermediate [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[6]-1:0] ex2_imul_intermediate [PP_WIDTH-1:0];
     int tests_run, tests_failed;
 
     if_id_reg if_id (

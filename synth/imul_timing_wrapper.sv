@@ -17,12 +17,12 @@ module imul_timing_wrapper (
     // pipeline is included because its muxing is part of cycles 1 and 3.
     ctrl_t stage0_ctrl_q, stage1_ctrl_q, stage2_ctrl_q;
     logic [XLEN-1:0] stage0_op1_q, stage0_op2_q;
-    logic [MAX_HEIGHT[1]-1:0] stage1_q [PP_WIDTH-1:0];
-    logic [MAX_HEIGHT[5]-1:0] stage2_q [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[0]-1:0] stage1_q [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[6]-1:0] stage2_q [PP_WIDTH-1:0];
     logic [XLEN-1:0] stage3_q;
 
-    logic [MAX_HEIGHT[1]-1:0] stage1_d [PP_WIDTH-1:0];
-    logic [MAX_HEIGHT[5]-1:0] stage2_d [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[0]-1:0] stage1_d [PP_WIDTH-1:0];
+    logic [MAX_HEIGHT[6]-1:0] stage2_d [PP_WIDTH-1:0];
     logic [XLEN-1:0] stage3_d;
 
     imul_cycle1 u_imul_cycle1 (
