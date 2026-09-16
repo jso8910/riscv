@@ -76,6 +76,10 @@ file mkdir $out_dir
 set_db library         $LIB_FILES
 set_db hdl_search_path [list [file join $root_dir rtl]]
 set_db information_level 5
+# Preserve these logical stage boundaries so the final per-stage reports can
+# select u_imul_cycle{1,2,3} after synthesis rather than finding them
+# flattened away.
+set_db hdl_preserve_hierarchy true
 
 # Elaborate once, then restore this pre-SDC database for every candidate.  A
 # trial is consequently optimized for its own period rather than inheriting a

@@ -71,6 +71,10 @@ file mkdir $out_dir
 set_db library         $LIB_FILES
 set_db hdl_search_path [list [file join $root_dir rtl]]
 set_db information_level 5
+# Keep the three pipeline-stage instances visible after optimization.  The
+# stage-specific timing reports select these instances; without this setting
+# Genus may flatten them and get_cells cannot resolve their names.
+set_db hdl_preserve_hierarchy true
 
 read_hdl -sv $imul_sources
 elaborate $TOP
