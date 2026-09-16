@@ -27,7 +27,11 @@ module immediate_gen (
             IMM_B : imm_o = imm_b;
             IMM_U : imm_o = imm_u;
             IMM_J : imm_o = imm_j;
-            default : imm_o = '0;
+            default : begin
+                // All instruction formats originate in the control decoder.
+                imm_o = '0;
+                assert (1'b0);
+            end
         endcase 
     end
 endmodule : immediate_gen

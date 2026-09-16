@@ -16,7 +16,11 @@ module trap_pc (
         case (trap_i.dest_machine_privilege)
             M_MODE : trap_vec = mtvec_i;
             S_MODE : trap_vec = stvec_i;
-            default : trap_vec = mtvec_i;
+            default : begin
+                // The trap controller may route only to M or S mode.
+                trap_vec = mtvec_i;
+                assert (1'b0);
+            end
         endcase
         // We don't want to flush the pipeline if the data in the MEM/WB register isn't valid
         // (condition for commit_i)

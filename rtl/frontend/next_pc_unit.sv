@@ -53,7 +53,12 @@ module next_pc_unit (
                 COND_GE : branch_taken = op1_signed >= op2_signed;
                 COND_LTU : branch_taken = op1 < op2;
                 COND_GEU : branch_taken = op1 >= op2;
-                default : branch_taken = '1;
+                default : begin
+                    // The decoder marks unsupported branch funct3 values illegal
+                    // before they can enter the pipeline.
+                    branch_taken = '1;
+                    assert (1'b0);
+                end
             endcase
         end
 

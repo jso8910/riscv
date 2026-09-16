@@ -16,7 +16,11 @@ module csr_val_gen (
             WB_NORMAL : csr_data_o = rs1_uimm_chosen;
             WB_SET_BITS : csr_data_o = csr_val_i | rs1_uimm_chosen;
             WB_CLEAR_BITS : csr_data_o = csr_val_i & (~rs1_uimm_chosen);
-            default : csr_data_o = '0;
+            default : begin
+                // csr_wb_sel is assigned only by the control decoder.
+                csr_data_o = '0;
+                assert (1'b0);
+            end
         endcase   
     end
 endmodule : csr_val_gen

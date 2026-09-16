@@ -122,7 +122,7 @@ module trap_controller(
                     read_fault = '1;
                     read_fault_idx = $clog2(MEM_READ_PORTS)'(unsigned'(i));
                 end
-                default : ;
+                default : assert (1'b0);
             endcase
         end
 

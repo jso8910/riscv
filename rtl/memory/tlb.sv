@@ -154,7 +154,10 @@ module translation_lookaside_buffer (
                     MFETCH : if (!pte.execute) begin
                         lookup_page_fault = '1;
                     end
-                    default : ;
+                    default : begin
+                        // Every TLB lookup must be a read, write, or fetch.
+                        assert (1'b0);
+                    end
                 endcase
             end
         end

@@ -135,7 +135,7 @@ module memory_management_unit (
                     page_fault_addr_a_o = raw_req[0].virtual_address;
                     load_page_fault_o = '1;
                 end
-                default : ;
+                default : assert (1'b0);
             endcase
         end
 
@@ -156,7 +156,7 @@ module memory_management_unit (
                     load_page_fault_o = '1;
                     assert (1'b0);
                 end
-                default : ;
+                default : assert (1'b0);
             endcase
         end
     end

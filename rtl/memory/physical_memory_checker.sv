@@ -303,6 +303,7 @@ module physical_memory_checker (
                                     fault_o[i] = pmp_fault(mem_req_i[i].op_original);
                                 end
                             end
+                            default : assert (1'b0);
                         endcase 
                     end
                 end
