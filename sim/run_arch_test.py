@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,10 @@ from pathlib import Path
 
 MEM_START = 0x00000000
 MEM_END = 0x001FFFFF
+# This is also included in the cached-binary signature below.  Setting
+# VERILATOR_CFLAGS lets a caller intentionally override it (for example, to
+# compare simulator build settings) without reusing an incompatible cache.
+VERILATOR_CFLAGS = os.environ.get("VERILATOR_CFLAGS", "-O3")
 
 
 def run_checked(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -118,8 +123,10 @@ def filelist_sources(repo_root: Path, filelist: Path, seen: set[Path] | None = N
 
 
 def verilator_source_signature(repo_root: Path) -> str:
-    """Hash all Verilator inputs so a cached binary is never stale."""
+    """Hash all HDL and build-setting inputs so a cached binary is never stale."""
     digest = hashlib.sha256()
+    digest.update(b"verilator-arch-test-cache-v2\0")
+    digest.update(f"verilator_cflags={VERILATOR_CFLAGS}\0".encode())
     sources = [repo_root / "sim/tb_arch_test.f", repo_root / "tb/tb_arch_test.sv"]
     sources.extend(filelist_sources(repo_root, repo_root / "sim/core_rtl.f"))
     for source in sources:
@@ -157,6 +164,8 @@ def compile_verilator_testbench(repo_root: Path, *, rebuild: bool) -> Path | Non
                     verilator,
                     "--binary",
                     "--timing",
+                    "-CFLAGS",
+                    VERILATOR_CFLAGS,
                     "--top-module",
                     "tb_arch_test",
                     "--Mdir",

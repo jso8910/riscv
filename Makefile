@@ -4,6 +4,10 @@ SHELL := /bin/bash
 IVERILOG ?= iverilog
 VVP ?= vvp
 VERILATOR ?= verilator
+# Optimization used for all compiled Verilator testbench binaries.  Lint-only
+# targets do not generate C++ and therefore do not use this setting.
+VERILATOR_CFLAGS ?= -O3
+export VERILATOR_CFLAGS
 SBY ?= sby
 IVERILOG_FLAGS := -g2012
 IVERILOG_WARN_FILTER := sed '/sorry: constant selects in always_[*] processes are not fully supported/d'
@@ -43,7 +47,7 @@ formal:
 	$(SBY) -f -d $(FORMAL_WORKDIR) $(FORMAL_SBY)
 
 define RUN_TEST
-	$(VERILATOR) --binary --timing --sv -Wno-fatal --top-module $(1) --Mdir $(BUILD_DIR)/obj_$(1) -f $(2)
+	$(VERILATOR) --binary --timing --sv -Wno-fatal -CFLAGS "$(VERILATOR_CFLAGS)" --top-module $(1) --Mdir $(BUILD_DIR)/obj_$(1) -f $(2)
 	$(BUILD_DIR)/obj_$(1)/V$(1)
 endef
 
