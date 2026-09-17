@@ -79,4 +79,31 @@ module id_ex1_reg (
             end
         end
     end
+
+    `ifdef FORMAL
+    // Why: an instruction waiting for EX1 must not be replaced or partially
+    // modified while EX1 is stalled.  What: a prior-cycle flush creates a
+    // bubble; otherwise a valid entry retains its control, operands, PC, and
+    // fetch-fault metadata if EX1 could not accept it.  How: compare every
+    // output field with $past(...) when the downstream ex1_ready_i was low.
+    // id_ready_o is intentionally not used: it only controls a replacement
+    // from Decode and may be low while EX1 still consumes this entry.
+    always_ff @(posedge clk) begin
+        if (rst_n && $past(rst_n)) begin
+            if ($past(ex1_flush_i))
+                assert (!ex1_valid_o);
+            if ($past(ex1_valid_o) && !$past(ex1_ready_i) && !$past(ex1_flush_i)) begin
+                assert (ex1_valid_o);
+                assert (ex1_pc_o == $past(ex1_pc_o));
+                assert (ex1_pred_pc_o == $past(ex1_pred_pc_o));
+                assert (ex1_ctrl_o == $past(ex1_ctrl_o));
+                assert (ex1_rs1_data_raw_o == $past(ex1_rs1_data_raw_o));
+                assert (ex1_rs2_data_raw_o == $past(ex1_rs2_data_raw_o));
+                assert (ex1_imm_o == $past(ex1_imm_o));
+                assert (ex1_fetch_mem_fault_o == $past(ex1_fetch_mem_fault_o));
+                assert (ex1_fetch_page_fault_o == $past(ex1_fetch_page_fault_o));
+            end
+        end
+    end
+    `endif
 endmodule : id_ex1_reg

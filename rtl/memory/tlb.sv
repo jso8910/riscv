@@ -221,4 +221,36 @@ module translation_lookaside_buffer (
             end
         end
     end
+
+    `ifdef FORMAL
+    // Why: a translation must have one unambiguous outcome.  Treating a fault
+    // as both complete and stalled can deadlock the pipeline; retaining an
+    // SFENCE.VMA-matched entry can use a stale mapping after software changes
+    // page tables.
+    // What: a page fault has neither a usable address nor an outstanding miss;
+    // a ready physical address comes only from a permission-checked hit; and
+    // a committed matching SFENCE.VMA invalidates its entry next cycle.
+    // How: check the mutually exclusive output flags directly, then use
+    // $past(sfence_entry_matches[i]) to require the corresponding valid bit
+    // to be clear in the following sampled state.
+    always_ff @(posedge clk) begin
+        if (rst_n) begin
+            if (lookup_en_i && page_fault_o) begin
+                assert (!paddr_ready_o);
+                assert (!miss_o);
+                assert (!ptw_stall_o);
+            end
+            if (lookup_en_i && paddr_ready_o) begin
+                assert (tlb_hit);
+                assert (!page_fault_o);
+                assert (!miss_o);
+                assert (!ptw_stall_o);
+            end
+            for (int i = 0; i < TLB_SIZE; i++) begin
+                if ($past(rst_n) && $past(sfence_entry_matches[i]))
+                    assert (!tlb_entries[i].valid);
+            end
+        end
+    end
+    `endif
 endmodule : translation_lookaside_buffer

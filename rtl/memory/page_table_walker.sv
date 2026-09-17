@@ -34,6 +34,27 @@ module page_table_walker (
     logic [$clog2(MEM_READ_PORTS)-1:0] walk_port_q;
     logic [$clog2(MEM_READ_PORTS)-1:0] selected_port;
 
+`ifdef FORMAL
+    // Portable replacement for $onehot0.  Keep this as an ordinary SV
+    // function because the Slang/Yosys bridge does not lower $onehot/$onehot0.
+    function automatic logic zero_or_one_hot(
+        input logic [MEM_READ_PORTS-1:0] vector
+    );
+        logic seen_one;
+        begin
+            seen_one = 1'b0;
+            zero_or_one_hot = 1'b1;
+            for (int i = 0; i < MEM_READ_PORTS; i++) begin
+                if (vector[i]) begin
+                    if (seen_one)
+                        zero_or_one_hot = 1'b0;
+                    seen_one = 1'b1;
+                end
+            end
+        end
+    endfunction
+`endif
+
     assign ptw_response_valid = walk_active_q && pte_valid_i[walk_port_q];
 
     // The instruction port wins a simultaneous initial miss.  Once selected,
@@ -176,4 +197,37 @@ module page_table_walker (
             end
         end
     end
+
+    `ifdef FORMAL
+    // Why: the PTW is shared by instruction and data translation.  Mixing
+    // their contexts, or changing an outstanding PTE address, could refill a
+    // TLB with the translation for a different virtual address.
+    // What: at most one port can request, refill, or fault at once; an active
+    // walk drives its own selected port and traversal address; and a waiting
+    // walk keeps its port, VA, SATP, level, and PTE address unchanged.
+    // How: zero_or_one_hot checks mutual exclusion.  The final $past-based
+    // block compares this cycle's saved walk state with the preceding cycle,
+    // but deliberately exempts a PTE response, a flush, and a matching
+    // SFENCE.VMA because those are the events allowed to end/change a walk.
+    always_ff @(posedge clk) begin
+        if (rst_n) begin
+            assert (zero_or_one_hot(ptw_mem_read_o));
+            assert (zero_or_one_hot(fill_valid_o));
+            assert (zero_or_one_hot(walk_page_fault_o));
+            if (walk_active_q) begin
+                assert (ptw_mem_read_o[walk_port_q]);
+                assert (ptw_mem_addr_o[walk_port_q] == traversal_addr);
+            end
+            if ($past(rst_n) && $past(walk_active_q) && !$past(ptw_response_valid)
+                && !$past(ptw_flush_i) && !$past(sfence_walk_matches)) begin
+                assert (walk_active_q);
+                assert (walk_port_q == $past(walk_port_q));
+                assert (walk_vaddr_q == $past(walk_vaddr_q));
+                assert (walk_satp_q == $past(walk_satp_q));
+                assert (current_level == $past(current_level));
+                assert (traversal_addr == $past(traversal_addr));
+            end
+        end
+    end
+    `endif
 endmodule : page_table_walker

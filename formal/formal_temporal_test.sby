@@ -1,0 +1,15 @@
+[options]
+mode bmc
+depth 6
+
+[engines]
+smtbmc z3 smt.threads=8
+
+[script]
+plugin -i /usr/share/yosys/plugins/slang.so
+read_slang --single-unit --top formal_temporal_test -D FORMAL -I . formal/formal_temporal_test.sv
+prep -top formal_temporal_test
+
+[files]
+rtl/misc/formal_temporal.svh rtl/misc/formal_temporal.svh
+formal/formal_temporal_test.sv formal/formal_temporal_test.sv

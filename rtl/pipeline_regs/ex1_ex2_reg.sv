@@ -98,4 +98,31 @@ module ex1_ex2_reg (
             end
         end
     end
+
+    `ifdef FORMAL
+    // Why: EX2 must receive a coherent EX1 result after a stall; mixing an
+    // address/control field from one instruction with data from another is
+    // especially dangerous for loads and stores.  What: a flush clears valid,
+    // and an unaccepted valid EX2 entry keeps its PC, control, address, data,
+    // and fetch-fault fields.  How: when $past(ex2_ready_i) is low, compare
+    // each current output to its $past value; ex1_ready_o is only the upstream
+    // replacement handshake and is deliberately not used as the hold test.
+    always_ff @(posedge clk) begin
+        if (rst_n && $past(rst_n)) begin
+            if ($past(ex2_flush_i))
+                assert (!ex2_valid_o);
+            if ($past(ex2_valid_o) && !$past(ex2_ready_i) && !$past(ex2_flush_i)) begin
+                assert (ex2_valid_o);
+                assert (ex2_pc_o == $past(ex2_pc_o));
+                assert (ex2_pred_pc_o == $past(ex2_pred_pc_o));
+                assert (ex2_ctrl_o == $past(ex2_ctrl_o));
+                assert (ex2_addr_o == $past(ex2_addr_o));
+                assert (ex2_store_data_o == $past(ex2_store_data_o));
+                assert (ex2_rd_data_o == $past(ex2_rd_data_o));
+                assert (ex2_fetch_mem_fault_o == $past(ex2_fetch_mem_fault_o));
+                assert (ex2_fetch_page_fault_o == $past(ex2_fetch_page_fault_o));
+            end
+        end
+    end
+    `endif
 endmodule : ex1_ex2_reg

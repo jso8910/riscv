@@ -3,16 +3,17 @@ mode bmc
 depth 20
 
 [engines]
-smtbmc z3
+# The proof has one SBY task, so SBY -j cannot parallelize it.  Let Z3 use
+# multiple cores for the expensive incremental BMC solve instead.
+smtbmc z3 smt.threads=8
 
 [script]
 plugin -i /usr/share/yosys/plugins/slang.so
-read_slang --single-unit --top riscv_core_formal -D FORMAL -f sim/core_rtl.f formal/riscv_core_formal.sv
-prep -top riscv_core_formal
+read_slang --single-unit --top riscv_core -D FORMAL -f sim/core_rtl.f
+prep -top riscv_core
 
 [files]
 sim/core_rtl.f sim/core_rtl.f
-formal/riscv_core_formal.sv formal/riscv_core_formal.sv
 rtl/riscv.svh rtl/riscv.svh
 rtl/backend/imul/imul_pkg.svh rtl/backend/imul/imul_pkg.svh
 rtl/backend/imul/booth_partial_products.sv rtl/backend/imul/booth_partial_products.sv

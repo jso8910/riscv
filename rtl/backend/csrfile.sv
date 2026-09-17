@@ -63,6 +63,14 @@ module csrfile (
     logic [XLEN-1:0] pmp_addr [0:PMP_ENTRY_COUNT-1];
     pmp_decoded_entry_t pmp_decoded [0:PMP_ENTRY_COUNT-1];
 
+`ifdef FORMAL
+    // Explicit history avoids relying on $past() of an unpacked-array element,
+    // which is not supported by all simulation/formal front ends.
+    logic [7:0]      pmp_cfg_prev [0:PMP_ENTRY_COUNT-1];
+    logic [XLEN-1:0] pmp_addr_prev [0:PMP_ENTRY_COUNT-1];
+    logic            pmp_history_valid;
+`endif
+
     // Some internal signals
     logic            csr_exists;
     logic [3:0]      pmpcfg_index;
@@ -461,6 +469,61 @@ module csrfile (
             minstret <= minstret + XLEN'(retire_count_i);
         end
     end
+
+    `ifdef FORMAL
+    // Why: PMP is a protection boundary, so a stale decode or an ignored lock
+    // bit can grant access that software explicitly tried to prohibit.
+    // What: each decoded PMP entry exactly reflects its architectural CSR
+    // fields; a locked entry cannot change; and a locked TOR entry also locks
+    // the preceding PMPADDR because that address is its lower boundary.
+    // How: recompute each decoded entry from the current CSR arrays, then
+    // compare current fields with the explicit one-cycle history captured
+    // below.  The final two assertions use $past inputs to check that mcycle
+    // and minstret advanced by exactly their prior-cycle increments whenever
+    // their enable/write rules allowed an increment.
+    always_ff @(posedge clk) begin
+        if (rst_n) begin
+            for (int i = 0; i < PMP_ENTRY_COUNT; i++) begin
+                if (i == 0)
+                    assert (pmp_decoded[i] == decode_pmp_entry(pmp_cfg[i], pmp_addr[i], '0));
+                else
+                    assert (pmp_decoded[i] == decode_pmp_entry(pmp_cfg[i], pmp_addr[i], pmp_addr[i-1]));
+
+                if (pmp_history_valid && pmp_cfg_prev[i][PMPCFG_L_IDX]) begin
+                    assert (pmp_cfg[i] == pmp_cfg_prev[i]);
+                    assert (pmp_addr[i] == pmp_addr_prev[i]);
+                end
+                if (i + 1 < PMP_ENTRY_COUNT && pmp_history_valid
+                    && pmp_cfg_prev[i+1][PMPCFG_L_IDX]
+                    && pmp_addr_matching_t'(pmp_cfg_prev[i+1][PMPCFG_A_MSB:PMPCFG_A_LSB]) == PMP_TOR)
+                    assert (pmp_addr[i] == pmp_addr_prev[i]);
+            end
+
+            if ($past(rst_n) && !$past(mcountinhibit[COUNT_CY])
+                && (!$past(ctrl_i.csr_write) || $past(csr_illegal_inst_o)
+                    || $past(ctrl_i.csr_addr) != MCYCLE || !$past(commit_i)))
+                assert (mcycle == $past(mcycle) + XLEN'($past(cycle_tick_i)));
+            if ($past(rst_n) && !$past(mcountinhibit[COUNT_IR])
+                && (!$past(ctrl_i.csr_write) || $past(csr_illegal_inst_o)
+                    || $past(ctrl_i.csr_addr) != MINSTRET || !$past(commit_i)))
+                assert (minstret == $past(minstret) + XLEN'($past(retire_count_i)));
+        end
+
+        if (!rst_n) begin
+            pmp_history_valid <= 1'b0;
+            for (int i = 0; i < PMP_ENTRY_COUNT; i++) begin
+                pmp_cfg_prev[i] <= '0;
+                pmp_addr_prev[i] <= '0;
+            end
+        end else begin
+            pmp_history_valid <= 1'b1;
+            for (int i = 0; i < PMP_ENTRY_COUNT; i++) begin
+                pmp_cfg_prev[i] <= pmp_cfg[i];
+                pmp_addr_prev[i] <= pmp_addr[i];
+            end
+        end
+    end
+    `endif
 
 function automatic logic csr_addr_exists(
     input logic [11:0] csr_addr

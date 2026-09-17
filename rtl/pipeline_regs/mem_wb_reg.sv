@@ -105,4 +105,31 @@ module mem_wb_reg (
             end
         end
     end
+
+    `ifdef FORMAL
+    // Why: writeback is the retirement boundary, so a MEM result held behind
+    // a WB stall must not turn into a different register write or fault.
+    // What: a flush inserts a bubble; otherwise a valid WB entry keeps its PC,
+    // control, result, and every recorded memory/alignment fault until WB
+    // accepts it.  How: when $past(wb_ready_i) is low, compare each output to
+    // its $past value.  mem_ready_o is not used because it describes whether
+    // MEM can present a replacement, not whether WB consumed the current one.
+    always_ff @(posedge clk) begin
+        if (rst_n && $past(rst_n)) begin
+            if ($past(wb_flush_i))
+                assert (!wb_valid_o);
+            if ($past(wb_valid_o) && !$past(wb_ready_i) && !$past(wb_flush_i)) begin
+                assert (wb_valid_o);
+                assert (wb_pc_o == $past(wb_pc_o));
+                assert (wb_pred_pc_o == $past(wb_pred_pc_o));
+                assert (wb_ctrl_o == $past(wb_ctrl_o));
+                assert (wb_rd_data_o == $past(wb_rd_data_o));
+                assert (wb_data_mem_fault_o == $past(wb_data_mem_fault_o));
+                assert (wb_data_store_page_fault_o == $past(wb_data_store_page_fault_o));
+                assert (wb_data_load_page_fault_o == $past(wb_data_load_page_fault_o));
+                assert (wb_address_misaligned_o == $past(wb_address_misaligned_o));
+            end
+        end
+    end
+    `endif
 endmodule : mem_wb_reg

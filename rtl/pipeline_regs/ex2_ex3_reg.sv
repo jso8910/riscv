@@ -98,4 +98,30 @@ module ex2_ex3_reg (
             end
         end
     end
+
+    `ifdef FORMAL
+    // Why: EX3 must see one complete instruction when it stalls, not a blend
+    // of two EX2 results.  What: flushes produce bubbles, and a valid EX3
+    // entry retains its PC, control, address, store data, result, and fault
+    // metadata until EX3 accepts it.  How: a low $past(ex3_ready_i) means the
+    // downstream consumer did not accept the entry, so every listed output is
+    // compared against its prior sampled value.
+    always_ff @(posedge clk) begin
+        if (rst_n && $past(rst_n)) begin
+            if ($past(ex3_flush_i))
+                assert (!ex3_valid_o);
+            if ($past(ex3_valid_o) && !$past(ex3_ready_i) && !$past(ex3_flush_i)) begin
+                assert (ex3_valid_o);
+                assert (ex3_pc_o == $past(ex3_pc_o));
+                assert (ex3_pred_pc_o == $past(ex3_pred_pc_o));
+                assert (ex3_ctrl_o == $past(ex3_ctrl_o));
+                assert (ex3_addr_o == $past(ex3_addr_o));
+                assert (ex3_store_data_o == $past(ex3_store_data_o));
+                assert (ex3_rd_data_o == $past(ex3_rd_data_o));
+                assert (ex3_fetch_mem_fault_o == $past(ex3_fetch_mem_fault_o));
+                assert (ex3_fetch_page_fault_o == $past(ex3_fetch_page_fault_o));
+            end
+        end
+    end
+    `endif
 endmodule : ex2_ex3_reg

@@ -36,6 +36,24 @@ module regfile (
         end
     end
 
+    `ifdef FORMAL
+    // Why: RISC-V requires x0 to be permanently zero.  If it were ever
+    // written, later instructions could silently use a corrupted operand.
+    // What: the stored x0 value and either read port when it selects x0 are
+    // always zero after reset.  How: check the register-array element itself
+    // as well as the muxed read outputs, catching both write-path and
+    // read-bypass/mux regressions close to their source.
+    always_ff @(posedge clk) begin
+        if (rst_n) begin
+            assert (regs[X0] == '0);
+            if (rs1_addr_i == X0)
+                assert (rs1_data_o == '0);
+            if (rs2_addr_i == X0)
+                assert (rs2_data_o == '0);
+        end
+    end
+    `endif
+
     // always_comb begin
     //     value_to_write = '0;
     //     case (wb_sel_i)

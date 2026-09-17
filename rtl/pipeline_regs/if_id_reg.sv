@@ -72,4 +72,29 @@ module if_id_reg (
         end
     end
 
+    `ifdef FORMAL
+    // Why: a stalled Decode stage must see the same fetched instruction until
+    // it accepts it; otherwise the PC, instruction, and fault metadata could
+    // become mismatched.  What: a prior-cycle flush creates a bubble, while a
+    // valid entry holds all of its fields if Decode was not ready.  How: use
+    // $past(id_ready_i), the downstream consumer's readiness, rather than
+    // if_ready_o, which only says whether Fetch may supply a replacement.
+    always_ff @(posedge clk) begin
+        if (rst_n && $past(rst_n)) begin
+            if ($past(id_flush_i))
+                assert (!id_valid_o);
+            if ($past(id_valid_o) && !$past(id_ready_i) && !$past(id_flush_i)) begin
+                assert (id_valid_o);
+                assert (id_pc_o == $past(id_pc_o));
+                assert (id_pred_pc_o == $past(id_pred_pc_o));
+                assert (id_inst_o == $past(id_inst_o));
+                assert (id_fetch_mem_fault_o == $past(id_fetch_mem_fault_o));
+                assert (id_fetch_mem_fault_addr_o == $past(id_fetch_mem_fault_addr_o));
+                assert (id_fetch_page_fault_o == $past(id_fetch_page_fault_o));
+                assert (id_fetch_page_fault_addr_o == $past(id_fetch_page_fault_addr_o));
+            end
+        end
+    end
+    `endif
+
 endmodule : if_id_reg

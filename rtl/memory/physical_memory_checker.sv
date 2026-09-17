@@ -308,6 +308,52 @@ module physical_memory_checker (
                     end
                 end
             end
+
+            `ifdef FORMAL
+            // Why: PMP must deny exactly the accesses specified by the first
+            // matching entry.  A priority or range mistake can create a real
+            // privilege-escalation hole, and directed tests cover only a tiny
+            // subset of address/size combinations.
+            // What: the checker reports the original virtual address; the
+            // selected entry is the first match; an S/U request with no match,
+            // an access extending outside its selected range, or a forbidden
+            // locked M-mode access receives the appropriate PMP fault.
+            // How: for every valid request, inspect the generated match and
+            // winner vectors, prove no lower-index entry also matched, and
+            // compare each denial condition to the fault output.
+            always_comb begin
+                if (mem_req_i[i].valid) begin
+                    assert (fault_addr_o[i] == mem_req_i[i].virtual_address);
+                    for (int j = 0; j < PMP_ENTRY_COUNT; j++) begin
+                        if (pmp_winner[j]) begin
+                            assert (pmp_match_any[j]);
+                            for (int k = 0; k < j; k++)
+                                assert (!pmp_match_any[k]);
+                        end
+                    end
+
+                    // In S/U mode, absence of a matching PMP entry denies
+                    // the request.  Any access spanning outside its selected
+                    // range is denied in every privilege mode.
+                    if (mem_req_i[i].effective_privilege != M_MODE && !pmp_matched)
+                        assert (fault_o[i] == pmp_fault(mem_req_i[i].op_original));
+                    if (pmp_matched && !pmp_selected_contains_all)
+                        assert (fault_o[i] == pmp_fault(mem_req_i[i].op_original));
+                    if (pmp_matched && pmp_selected_locked
+                        && mem_req_i[i].effective_privilege == M_MODE) begin
+                        case (mem_req_i[i].op)
+                            MFETCH: if (!pmp_selected_executable)
+                                assert (fault_o[i] == pmp_fault(mem_req_i[i].op_original));
+                            MREAD: if (!pmp_selected_readable)
+                                assert (fault_o[i] == pmp_fault(mem_req_i[i].op_original));
+                            MWRITE: if (!pmp_selected_writable)
+                                assert (fault_o[i] == pmp_fault(mem_req_i[i].op_original));
+                            default: assert (1'b0);
+                        endcase
+                    end
+                end
+            end
+            `endif
         end
         // always_comb begin
         //     pma_faulting_addr_o = '0;

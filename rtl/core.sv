@@ -14,6 +14,19 @@ module riscv_core (
     output logic [WWIDTH-1:0]   data_mem_data_o,
     output logic                mtime_we_o
 );
+    `ifdef FORMAL
+    // Standalone formal runs use riscv_core directly as their top level. The
+    // initialized flag constrains the externally supplied reset input to be
+    // asserted at the first sampled clock, establishing architectural reset
+    // before any post-reset $past()-based properties are evaluated.
+    logic formal_first_cycle = 1'b1;
+    always_ff @(posedge clk) begin
+        if (formal_first_cycle)
+            assume (!rst_n);
+        formal_first_cycle <= 1'b0;
+    end
+    `endif
+
     // ================
     // Wire definitions
     // ================
@@ -906,6 +919,37 @@ module riscv_core (
     // separate take signal rather than the retirement signal.
     assign wb_take_trap = wb_valid && wb_trap.is_trap;
     assign wb_retire = wb_valid && !wb_trap.is_trap;
+
+    `ifdef FORMAL
+    // Why: traps are precise: neither the faulting instruction nor a younger
+    // store may make an architectural change.  A wrong gate here can corrupt
+    // memory or the timer even though the pipeline later takes the trap.
+    // What: retirement and trap-taking are mutually exclusive, and every
+    // external write is a committed, fault-free store.  How: the assertions
+    // first prove that the write-enable outputs imply mem_store_commit, then
+    // expand mem_store_commit into its required valid, non-trap, non-redirect,
+    // and non-fault conditions.  The trap case independently requires all
+    // memory and timer write enables to be low.
+    always_comb begin
+        assert (!(wb_retire && wb_take_trap));
+        if (data_mem_we_o != '0)
+            assert (mem_store_commit);
+        if (mtime_we_o || mtimecmp_we)
+            assert (mem_store_commit);
+        if (wb_take_trap) begin
+            assert (!wb_retire);
+            assert (data_mem_we_o == '0);
+            assert (!mtime_we_o && !mtimecmp_we);
+        end
+        if (mem_store_commit) begin
+            assert (mem_valid && mem_ctrl.mem_write);
+            assert (!wb_csr_redirect);
+            assert (!wb_valid || !wb_trap.is_trap);
+            assert (mem_fault[0] == FAULT_NONE);
+            assert (!mem_data_store_page_fault);
+        end
+    end
+    `endif
 
     timer_interrupt u_timer_interrupt (
         .clk          (clk),

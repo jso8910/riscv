@@ -92,4 +92,30 @@ module ex3_mem_reg (
             end
         end
     end
+
+    `ifdef FORMAL
+    // Why: MEM may stall for translation or memory, so the pending operation
+    // must remain exactly the same until it is accepted.  What: a flush clears
+    // valid, and a stalled MEM entry preserves its PC, control, address, store
+    // data, result, and fetch-fault metadata.  How: if $past(mem_ready_i) was
+    // low, MEM could not consume the old entry; compare all current outputs to
+    // $past outputs rather than using ex3_ready_o, its upstream handshake.
+    always_ff @(posedge clk) begin
+        if (rst_n && $past(rst_n)) begin
+            if ($past(mem_flush_i))
+                assert (!mem_valid_o);
+            if ($past(mem_valid_o) && !$past(mem_ready_i) && !$past(mem_flush_i)) begin
+                assert (mem_valid_o);
+                assert (mem_pc_o == $past(mem_pc_o));
+                assert (mem_pred_pc_o == $past(mem_pred_pc_o));
+                assert (mem_ctrl_o == $past(mem_ctrl_o));
+                assert (mem_addr_o == $past(mem_addr_o));
+                assert (mem_store_data_o == $past(mem_store_data_o));
+                assert (mem_rd_data_o == $past(mem_rd_data_o));
+                assert (mem_fetch_mem_fault_o == $past(mem_fetch_mem_fault_o));
+                assert (mem_fetch_page_fault_o == $past(mem_fetch_page_fault_o));
+            end
+        end
+    end
+    `endif
 endmodule : ex3_mem_reg

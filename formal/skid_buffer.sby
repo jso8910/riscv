@@ -1,0 +1,15 @@
+[options]
+mode bmc
+depth 15
+
+[engines]
+smtbmc z3 smt.threads=8
+
+[script]
+plugin -i /usr/share/yosys/plugins/slang.so
+read_slang --single-unit --top skid_buffer -D FORMAL -D SKID_BUFFER_STANDALONE -I . rtl/misc/skid_buffer.sv
+prep -top skid_buffer
+
+[files]
+rtl/misc/formal_temporal.svh rtl/misc/formal_temporal.svh
+rtl/misc/skid_buffer.sv rtl/misc/skid_buffer.sv

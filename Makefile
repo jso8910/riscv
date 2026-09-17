@@ -15,6 +15,10 @@ IVERILOG_WARN_FILTER := sed '/sorry: constant selects in always_[*] processes ar
 BUILD_DIR := build
 FORMAL_SBY ?= formal/riscv_core.sby
 FORMAL_WORKDIR ?= $(BUILD_DIR)/formal
+SKID_BUFFER_FORMAL_SBY ?= formal/skid_buffer.sby
+SKID_BUFFER_FORMAL_WORKDIR ?= $(BUILD_DIR)/formal_skid_buffer
+FORMAL_TEMPORAL_TEST_SBY ?= formal/formal_temporal_test.sby
+FORMAL_TEMPORAL_TEST_WORKDIR ?= $(BUILD_DIR)/formal_temporal_test
 TEST_TARGETS := test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-dadda-stage test-sram test-memory-controller test-memory-controller-sram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test test-pipeline-fault-regression
 TEST_TARGET_COUNT := $(words $(TEST_TARGETS))
 
@@ -31,7 +35,7 @@ ARCH_TEST_FAST ?= True
 ARCH_TEST_TIMEOUT ?= 60
 PIPELINE_FAULT_MAX_CYCLES ?= 100000
 
-.PHONY: all core formal test test-all test-arch test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-dadda-stage test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test-pipeline-fault-regression bench-coremark bench-coremark-run bench-embench bench-embench-run clean
+.PHONY: all core formal formal-skid-buffer formal-temporal-test test test-all test-arch test-alu test-next-pc test-immediate-gen test-booth-encoder-radix4 test-booth-partial-products test-dadda-stage test-sram test-memory-controller test-memory-controller-sram test-ram test-fetch test-regfile test-control test-csrfile test-trap-controller test-pma test-tlb test-timer test-system-timer test-csr-val-gen test-forwarding-hazard test-control-helpers test-pipeline-regs test-pipeline-fault-regression bench-coremark bench-coremark-run bench-embench bench-embench-run clean
 
 all: core
 
@@ -45,6 +49,12 @@ core: $(BUILD_DIR)
 # SystemVerilog is elaborated by Slang instead of Yosys's limited SV parser.
 formal:
 	$(SBY) -f -d $(FORMAL_WORKDIR) $(FORMAL_SBY)
+
+formal-skid-buffer:
+	$(SBY) -f -d $(SKID_BUFFER_FORMAL_WORKDIR) $(SKID_BUFFER_FORMAL_SBY)
+
+formal-temporal-test:
+	$(SBY) -f -d $(FORMAL_TEMPORAL_TEST_WORKDIR) $(FORMAL_TEMPORAL_TEST_SBY)
 
 define RUN_TEST
 	$(VERILATOR) --binary --timing --sv -Wno-fatal -CFLAGS "$(VERILATOR_CFLAGS)" --top-module $(1) --Mdir $(BUILD_DIR)/obj_$(1) -f $(2)
